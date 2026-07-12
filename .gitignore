@@ -3,11 +3,18 @@
 __pycache__/
 *.db
 
+# 通話録音(個人データ。絶対にコミットしない)
+recordings/
+
 # Terraform
 **/.terraform/
 *.tfstate
 *.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform.tfstate.lock.info
 crash.log
 
 # Docker
 *.local.yml
+tfplan

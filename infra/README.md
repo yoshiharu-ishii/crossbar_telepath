@@ -5,20 +5,35 @@ TerraformでコールセンターをフルIaC構築する。PH1のスコープ�
 
 ## 構成
 
-```
-公衆電話網 → DID(aws_connect_phone_number)
-                │ aws_connect_phone_number_contact_flow_association
-                ▼
-     コールフロー(flows/inbound.json)
-     ログ有効化 → 日本語音声(Takumi) → 録音同意アナウンス
-     → メディアストリーミング開始 → 無音保留(1分×10ループ) → 切断
-                │ aws_connect_instance_storage_config (MEDIA_STREAMS)
-                ▼
-     Kinesis Video Streams(KMS暗号化、保持24h)
-     ストリーム名: crossbar-telepath-connect-crossbar-telepath-contact-*
+```mermaid
+flowchart TD
+    PSTN[公衆電話網] --> DID["DID(aws_connect_phone_number)"]
+    DID -->|aws_connect_phone_number_contact_flow_association| Flow["コールフロー(flows/inbound.json)"]
+    Flow -->|"aws_connect_instance_storage_config(MEDIA_STREAMS)"| KVS["Kinesis Video Streams<br>KMS暗号化、保持24h<br>crossbar-telepath-connect-…-contact-*"]
 ```
 
-- 自分(To)と相手(From)の音声は**同一KVSストリーム内の別トラック**で届く
+架電時の呼処理:
+
+```mermaid
+sequenceDiagram
+    actor Caller as 発信者(携帯)
+    participant Connect as Amazon Connect
+    participant Flow as コールフロー(IVR)
+    participant KVS as Kinesis Video Streams
+
+    Caller->>Connect: DIDへ着信
+    Connect->>Flow: 呼処理開始
+    Flow->>Flow: ログ有効化・日本語音声(Takumi)設定
+    Flow->>Caller: 録音同意アナウンス
+    Flow->>KVS: メディアストリーミング開始(To/Fromの2トラック)
+    loop 無音SSML 1分 × 10回(通話維持)
+        Flow-->>Caller: 無音プロンプト再生
+        Caller-->>KVS: 発話がFROM_CUSTOMERトラックに積まれる
+    end
+    Caller->>Connect: 切断(またはループ満了で切断)
+```
+
+- 自分(To)と相手(From)の音声は**同一KVSストリーム内の別トラック**で届く(トラック1=TO、トラック2=FROM)
 - コールフローは新フロー言語(`Version: 2019-10-30`)。旧形式(modules)ではないので注意
 
 ## 使い方

@@ -2,7 +2,10 @@
 
 **電話網の会話から、相手の心理をリアルタイムに嗅ぎ取る。**
 crossbar(クロスバー交換機)+ telepath(電話線越しの読心)。
-[realtime_voice](https://github.com/yoshiharu-ishii/realtime_voice) の続編として2026-07-11深夜に構想。現在は**構想段階、コード未着手**。
+[realtime_voice](https://github.com/yoshiharu-ishii/realtime_voice) の続編として2026-07-11深夜に構想。
+**現状(2026-07-12): PH1完了**。Connect基盤のTerraform(`infra/`)は架電E2E検証済みでdestroy済み(再applyで番号は変わる)。
+KVSのMKVパース(旧・最難関)は `tools/extract_audio.py` で突破済み——CodecIDは"A_AAC"詐称で中身は生L16 PCM 8kHz、
+トラック1=TO_CUSTOMER/2=FROM_CUSTOMER、SimpleBlock先頭4バイト剥がし。詳細はPR #1参照。
 
 ## コンセプト
 
@@ -10,17 +13,13 @@ TerraformでコールセンターをフルIaC構築し、通話の両話者を�
 それぞれの心理状態(感情・温度感)をリアルタイムにモニタリングするWebUI。
 「相手が苛立ち始めています。反論せず事実確認に徹してください」と逐次助言する。
 
-```
-公衆電話網 → Amazon Connect(Terraformで構築)
-                │ Kinesis Video Streams(KVS)へ通話音声を配信
-                │ ※自分と相手が最初から別チャンネル=話者分離が不要
-                ▼
-   消費サービス(FastAPI。realtime_voiceの中継の親戚)
-   ここが「プログラマブル交換機(INのSCP)」= 差別化の全てが住む場所
-                │ 話者ごとに OpenAI Realtime API(output_modalities: ["text"])
-                │ → 声のトーン込みで心理分析をテキストで返させる
-                ▼
-   WebUI: 両者の感情ゲージ・文字起こし・助言フィード(Cognito認証)
+```mermaid
+flowchart TD
+    PSTN[公衆電話網] --> Connect["Amazon Connect<br>(Terraformで構築)"]
+    Connect -->|"通話音声をライブ配信<br>※自分と相手が最初から別トラック=話者分離が不要"| KVS["Kinesis Video Streams(KVS)"]
+    KVS --> SCP["消費サービス(FastAPI。realtime_voiceの中継の親戚)<br>ここが「プログラマブル交換機(INのSCP)」=差別化の全てが住む場所"]
+    SCP <-->|"話者ごとに音声を送り、声のトーン込みの<br>心理分析をテキストで受ける(output_modalities: text)"| RT["OpenAI Realtime API"]
+    SCP --> UI["WebUI: 両者の感情ゲージ・文字起こし・助言フィード<br>(Cognito認証)"]
 ```
 
 ## 決定済みの技術判断
@@ -54,6 +53,7 @@ TerraformでコールセンターをフルIaC構築し、通話の両話者を�
 ## 運用(グローバル ~/.claude/CLAUDE.md も参照)
 
 - PR単位で開発、検証結果をPR本文に。マージはユーザー指示で
+- **図・シーケンス図はUML(Mermaid記法)で統一**。ASCIIアート図は使わない。リポジトリ内は ```mermaid で直書き(GitHubが描画)、ブログはPNGにレンダリングして貼る
 - ユーザーのサーバーはポート8000、Claudeの検証は8001(終わったら止める)
 - 節目でブログ化を提案(pocraft.net、~/.wp_credentials、下書き→GO待ち)
 - コスト: Connectは従量+番号日額、Realtime音声入力は分単価あり。常時聴取は「無音も課金」側であることに注意

@@ -7,7 +7,11 @@ __pycache__/
 **/.terraform/
 *.tfstate
 *.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform.tfstate.lock.info
 crash.log
 
 # Docker
 *.local.yml
+tfplan

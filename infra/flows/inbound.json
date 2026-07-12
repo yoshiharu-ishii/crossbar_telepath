@@ -1,0 +1,133 @@
+{
+  "Version": "2019-10-30",
+  "StartAction": "SetLogging",
+  "Metadata": {
+    "entryPointPosition": { "x": 20, "y": 20 },
+    "ActionMetadata": {
+      "SetLogging": { "position": { "x": 140, "y": 20 }, "isFriendlyName": true },
+      "SetVoice": { "position": { "x": 380, "y": 20 }, "isFriendlyName": true },
+      "ConsentAnnouncement": { "position": { "x": 620, "y": 20 }, "isFriendlyName": true },
+      "StartStreaming": { "position": { "x": 860, "y": 20 }, "isFriendlyName": true, "toCustomer": true, "fromCustomer": true },
+      "Silence1Min": { "position": { "x": 1100, "y": 20 }, "isFriendlyName": true },
+      "SilenceLoop": { "position": { "x": 1340, "y": 20 }, "isFriendlyName": true },
+      "Goodbye": { "position": { "x": 1580, "y": 20 }, "isFriendlyName": true },
+      "StreamError": { "position": { "x": 860, "y": 260 }, "isFriendlyName": true },
+      "Disconnect": { "position": { "x": 1820, "y": 140 }, "isFriendlyName": true }
+    }
+  },
+  "Actions": [
+    {
+      "Identifier": "SetLogging",
+      "Type": "UpdateFlowLoggingBehavior",
+      "Parameters": { "FlowLoggingBehavior": "Enabled" },
+      "Transitions": { "NextAction": "SetVoice" }
+    },
+    {
+      "Identifier": "SetVoice",
+      "Type": "UpdateContactTextToSpeechVoice",
+      "Parameters": { "TextToSpeechVoice": "Takumi" },
+      "Transitions": {
+        "NextAction": "ConsentAnnouncement",
+        "Errors": [
+          { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "ConsentAnnouncement",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "この通話は、通話品質の分析と心理状態の可視化のため、録音および解析されます。ご了承のうえ、そのままお話しください。"
+      },
+      "Transitions": {
+        "NextAction": "StartStreaming",
+        "Errors": [
+          { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "StartStreaming",
+      "Type": "UpdateContactMediaStreamingBehavior",
+      "Parameters": {
+        "MediaStreamingState": "Enabled",
+        "MediaStreamType": "Audio",
+        "Participants": [
+          {
+            "ParticipantType": "Customer",
+            "MediaDirections": ["To", "From"]
+          }
+        ]
+      },
+      "Transitions": {
+        "NextAction": "Silence1Min",
+        "Errors": [
+          { "NextAction": "StreamError", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "Silence1Min",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "SSML": "<speak><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/></speak>"
+      },
+      "Transitions": {
+        "NextAction": "SilenceLoop",
+        "Errors": [
+          { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "SilenceLoop",
+      "Type": "Loop",
+      "Parameters": { "LoopCount": "10" },
+      "Transitions": {
+        "NextAction": "Goodbye",
+        "Conditions": [
+          {
+            "NextAction": "Silence1Min",
+            "Condition": { "Operator": "Equals", "Operands": ["ContinueLooping"] }
+          },
+          {
+            "NextAction": "Goodbye",
+            "Condition": { "Operator": "Equals", "Operands": ["DoneLooping"] }
+          }
+        ]
+      }
+    },
+    {
+      "Identifier": "Goodbye",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "検証時間の上限に達しました。通話を終了します。"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "StreamError",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "メディアストリーミングの開始に失敗しました。通話を終了します。"
+      },
+      "Transitions": {
+        "NextAction": "Disconnect",
+        "Errors": [
+          { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "Disconnect",
+      "Type": "DisconnectParticipant",
+      "Parameters": {},
+      "Transitions": {}
+    }
+  ]
+}

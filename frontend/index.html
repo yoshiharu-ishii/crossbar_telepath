@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>crossbar_telepath — リアルタイム識字</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #fff; --line: #e3e3df;
+    --fg: #1d1d1b; --muted: #6f6f68;
+    --customer: #b3261e; --customer-bg: #fdecea;
+    --agent: #0f6e56; --agent-bg: #e6f4ef;
+    --accent: #185fa5;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17171a; --panel: #202024; --line: #33333a;
+      --fg: #ececea; --muted: #9a9a94;
+      --customer: #f09595; --customer-bg: #3a2020;
+      --agent: #7fd0b4; --agent-bg: #16302a;
+      --accent: #85b7eb;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    line-height: 1.6;
+  }
+  header {
+    position: sticky; top: 0; z-index: 5;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  h1 { font-size: 15px; font-weight: 600; margin: 0; }
+  #dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  #dot.active { background: #2e9e5b; box-shadow: 0 0 0 4px rgba(46,158,91,.18); }
+  #label { font-size: 13px; color: var(--muted); font-family: ui-monospace, monospace; }
+  .spacer { flex: 1; }
+  button {
+    font: inherit; font-size: 13px; padding: 6px 14px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--panel); color: var(--fg); cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  main { max-width: 860px; margin: 0 auto; padding: 20px; }
+  .row { display: flex; margin: 10px 0; }
+  .row.agent { justify-content: flex-end; }
+  .bubble {
+    max-width: 72%; padding: 8px 14px; border-radius: 14px;
+    border: 1px solid var(--line); background: var(--panel);
+  }
+  .row.customer .bubble { background: var(--customer-bg); border-bottom-left-radius: 4px; }
+  .row.agent .bubble { background: var(--agent-bg); border-bottom-right-radius: 4px; }
+  .who { font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+  .row.customer .who { color: var(--customer); }
+  .row.agent .who { color: var(--agent); }
+  .text { white-space: pre-wrap; word-break: break-word; }
+  .bubble.pending .text { color: var(--muted); }
+  .bubble.pending .text::after {
+    content: "▌"; animation: blink 1s steps(2) infinite; margin-left: 1px;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
+  .time { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: ui-monospace, monospace; }
+  #empty { color: var(--muted); font-size: 14px; text-align: center; padding: 48px 0; }
+  .sys { text-align: center; font-size: 12px; color: var(--muted); margin: 16px 0; }
+</style>
+</head>
+<body>
+<header>
+  <span id="dot"></span>
+  <h1>リアルタイム識字</h1>
+  <span id="label">待機中</span>
+  <span class="spacer"></span>
+  <button id="replay">録音をリプレイ</button>
+</header>
+<main>
+  <div id="feed"></div>
+  <div id="empty">通話が始まると、ここに話者ごとの文字起こしが流れます。<br />
+    架電せずに試すには「録音をリプレイ」。</div>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

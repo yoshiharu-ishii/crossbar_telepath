@@ -1,0 +1,18 @@
+# ローカル起動: docker compose up --build (http://localhost:8000)
+# .env は backend/.env をそのまま注入(イメージには焼かれていない)
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    env_file:
+      - backend/.env
+    environment:
+      # KVSを監視して実通話を拾うなら 1。リプレイだけなら 0
+      WATCH_KVS: "${WATCH_KVS:-0}"
+      AWS_REGION: "${AWS_REGION:-ap-northeast-1}"
+    volumes:
+      # 録音はイメージに焼かず、開発用リプレイの入力として読むだけ
+      - ./recordings:/app/recordings:ro
+      # KVSを叩くときはホストのAWS認証情報を借りる
+      - ~/.aws:/root/.aws:ro

@@ -50,14 +50,23 @@ def list_call_streams() -> list[dict]:
     return streams
 
 
-async def stream_from_kvs(stream_arn: str) -> AsyncIterator[bytes]:
-    """GetMediaで通話音声をライブ受信する。boto3は同期なのでスレッドで読む。"""
+async def stream_from_kvs(
+    stream_arn: str, start_fragment: str | None = None
+) -> AsyncIterator[bytes]:
+    """GetMediaで通話音声をライブ受信する。boto3は同期なのでスレッドで読む。
+
+    start_fragment(Connectがシグナリングで渡してくる通話先頭のフラグメント番号)が
+    あればそこから読む。NOWで繋ぐと接続が済むまでの音声を取り逃す。
+    """
     kvs = _kvs_client()
     endpoint = kvs.get_data_endpoint(StreamARN=stream_arn, APIName="GET_MEDIA")["DataEndpoint"]
     media = boto3.client("kinesis-video-media", endpoint_url=endpoint, region_name=AWS_REGION)
-    resp = media.get_media(
-        StreamARN=stream_arn, StartSelector={"StartSelectorType": "NOW"}
+    selector: dict[str, str] = (
+        {"StartSelectorType": "FRAGMENT_NUMBER", "AfterFragmentNumber": start_fragment}
+        if start_fragment
+        else {"StartSelectorType": "NOW"}
     )
+    resp = media.get_media(StreamARN=stream_arn, StartSelector=selector)
     body = resp["Payload"]
     log.info("GetMedia connected: %s", stream_arn.rsplit("/", 2)[-2])
     try:

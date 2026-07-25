@@ -8,7 +8,9 @@
       "SetVoice": { "position": { "x": 380, "y": 20 }, "isFriendlyName": true },
       "ConsentAnnouncement": { "position": { "x": 620, "y": 20 }, "isFriendlyName": true },
       "StartStreaming": { "position": { "x": 860, "y": 20 }, "isFriendlyName": true, "toCustomer": true, "fromCustomer": true },
-      "StreamingStarted": { "position": { "x": 1100, "y": 140 }, "isFriendlyName": true },
+      "NotifySCP": { "position": { "x": 1100, "y": 20 }, "isFriendlyName": true, "dynamicMetadata": {} },
+      "NotifyError": { "position": { "x": 1100, "y": 380 }, "isFriendlyName": true },
+      "StreamingStarted": { "position": { "x": 1340, "y": 140 }, "isFriendlyName": true },
       "Silence1Min": { "position": { "x": 1100, "y": 20 }, "isFriendlyName": true },
       "SilenceLoop": { "position": { "x": 1340, "y": 20 }, "isFriendlyName": true },
       "Goodbye": { "position": { "x": 1580, "y": 20 }, "isFriendlyName": true },
@@ -61,9 +63,37 @@
         ]
       },
       "Transitions": {
-        "NextAction": "StreamingStarted",
+        "NextAction": "NotifySCP",
         "Errors": [
           { "NextAction": "StreamError", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "NotifySCP",
+      "Type": "InvokeLambdaFunction",
+      "Parameters": {
+        "LambdaFunctionARN": "${lambda_arn}",
+        "InvocationTimeLimitSeconds": "5",
+        "ResponseValidation": { "ResponseType": "STRING_MAP" }
+      },
+      "Transitions": {
+        "NextAction": "StreamingStarted",
+        "Errors": [
+          { "NextAction": "NotifyError", "ErrorType": "NoMatchingError" }
+        ]
+      }
+    },
+    {
+      "Identifier": "NotifyError",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "解析サーバーへの通知に失敗しました。通話は継続します。"
+      },
+      "Transitions": {
+        "NextAction": "Silence1Min",
+        "Errors": [
+          { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
         ]
       }
     },

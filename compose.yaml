@@ -8,8 +8,8 @@ services:
     env_file:
       - backend/.env
     environment:
-      # KVSを監視して実通話を拾うなら 1。リプレイだけなら 0
-      WATCH_KVS: "${WATCH_KVS:-0}"
+      # シグナリング(SQS)を監視して実通話を拾うなら 1。リプレイだけなら 0
+      WATCH_CALLS: "${WATCH_CALLS:-0}"
       AWS_REGION: "${AWS_REGION:-ap-northeast-1}"
     volumes:
       # 録音はイメージに焼かず、開発用リプレイの入力として読むだけ

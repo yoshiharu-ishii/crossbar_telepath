@@ -1,86 +1,116 @@
-// サーバーから流れてくる文字起こしイベントをチャット表示する。
+// 呼(contact_id)ごとにカードを作り、その中へ話者別の発言を積む。
 // delta は未確定として薄く出し、completed が来たら確定表示に差し替える。
 
-const feed = document.getElementById("feed");
-const empty = document.getElementById("empty");
-const dot = document.getElementById("dot");
-const label = document.getElementById("label");
+const callsEl = document.getElementById("calls");
+const emptyEl = document.getElementById("empty");
+const statusEl = document.getElementById("status");
 const replayBtn = document.getElementById("replay");
 
 const WHO = { customer: "相手 (FROM_CUSTOMER)", agent: "こちら (TO_CUSTOMER)" };
-const bubbles = new Map(); // item_id -> element
+const calls = new Map(); // contact_id -> {root, body, bubbles}
 
 function clock(ts) {
-  const d = ts ? new Date(ts * 1000) : new Date();
-  return d.toLocaleTimeString("ja-JP", { hour12: false });
+  return new Date((ts || Date.now() / 1000) * 1000).toLocaleTimeString("ja-JP", { hour12: false });
 }
 
-function bubbleFor(msg) {
+function shortId(id) {
+  return id && id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id || "";
+}
+
+function callCard(msg) {
+  let call = calls.get(msg.contact_id);
+  if (call) return call;
+
+  emptyEl.style.display = "none";
+  const root = document.createElement("section");
+  root.className = "call live";
+  root.innerHTML =
+    `<div class="call-head">` +
+    `<span class="dot"></span><span class="cid"></span>` +
+    `<span class="meta"></span><span class="spacer" style="flex:1"></span>` +
+    `<span class="badge">通話中</span></div>` +
+    `<div class="body"><div class="quiet">音声を待っています…</div></div>`;
+  root.querySelector(".cid").textContent = shortId(msg.contact_id);
+  const meta = [msg.customer_number, msg.label, clock(msg.ts)].filter(Boolean).join(" · ");
+  root.querySelector(".meta").textContent = meta;
+
+  callsEl.prepend(root);
+  call = { root, body: root.querySelector(".body"), bubbles: new Map(), empty: true };
+  calls.set(msg.contact_id, call);
+  return call;
+}
+
+function bubbleFor(call, msg) {
   const key = `${msg.speaker}:${msg.item_id}`;
-  let el = bubbles.get(key);
+  let el = call.bubbles.get(key);
   if (el) return el;
 
-  empty.style.display = "none";
+  if (call.empty) {
+    call.body.innerHTML = "";
+    call.empty = false;
+  }
   const row = document.createElement("div");
   row.className = `row ${msg.speaker}`;
   row.innerHTML =
-    `<div class="bubble pending">` +
-    `<div class="who"></div><div class="text"></div><div class="time"></div></div>`;
+    `<div class="bubble pending"><div class="who"></div>` +
+    `<div class="text"></div><div class="time"></div></div>`;
   row.querySelector(".who").textContent = WHO[msg.speaker] || msg.speaker;
   row.querySelector(".time").textContent = clock(msg.ts);
-  feed.appendChild(row);
+  call.body.appendChild(row);
   el = row.querySelector(".bubble");
-  bubbles.set(key, el);
-  window.scrollTo(0, document.body.scrollHeight);
+  call.bubbles.set(key, el);
   return el;
 }
 
-function system(text) {
-  const div = document.createElement("div");
-  div.className = "sys";
-  div.textContent = text;
-  feed.appendChild(div);
-  window.scrollTo(0, document.body.scrollHeight);
-}
-
 function handle(msg) {
-  if (msg.type === "call_state") {
-    const active = msg.status === "active";
-    dot.classList.toggle("active", active);
-    label.textContent = active ? `通話中 ${msg.label || ""}` : "待機中";
-    if (active) {
-      feed.innerHTML = "";
-      bubbles.clear();
-      empty.style.display = "none";
-      system(`通話開始 ${clock(msg.ts)}`);
-    } else if (bubbles.size) {
-      system(`通話終了 ${clock(msg.ts)}`);
+  switch (msg.type) {
+    case "call_started": {
+      callCard(msg);
+      replayBtn.disabled = false;
+      break;
     }
-    replayBtn.disabled = active;
-    return;
-  }
-  if (msg.type === "transcript") {
-    const el = bubbleFor(msg);
-    const text = el.querySelector(".text");
-    if (msg.final) {
-      text.textContent = msg.text || text.textContent;
-      el.classList.remove("pending");
-    } else {
-      text.textContent += msg.delta || "";
+    case "call_ended": {
+      const call = calls.get(msg.contact_id);
+      if (!call) break;
+      call.root.classList.remove("live");
+      call.root.querySelector(".badge").textContent = `終了 ${clock(msg.ts)}`;
+      if (call.empty) call.body.querySelector(".quiet").textContent = "発話は検出されませんでした。";
+      break;
     }
-    window.scrollTo(0, document.body.scrollHeight);
-    return;
-  }
-  if (msg.type === "error") {
-    system(`エラー (${msg.speaker}): ${msg.message}`);
+    case "transcript": {
+      const call = calls.get(msg.contact_id) || callCard(msg);
+      const el = bubbleFor(call, msg);
+      const text = el.querySelector(".text");
+      if (msg.final) {
+        text.textContent = msg.text || text.textContent;
+        el.classList.remove("pending");
+      } else {
+        text.textContent += msg.delta || "";
+      }
+      break;
+    }
+    case "error": {
+      const call = calls.get(msg.contact_id);
+      if (call) {
+        const div = document.createElement("div");
+        div.className = "quiet";
+        div.textContent = `エラー (${msg.speaker}): ${msg.message}`;
+        call.body.appendChild(div);
+      }
+      break;
+    }
   }
 }
 
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => (statusEl.textContent = "待機中");
   ws.onmessage = (e) => handle(JSON.parse(e.data));
-  ws.onclose = () => setTimeout(connect, 1500);
+  ws.onclose = () => {
+    statusEl.textContent = "切断 — 再接続します";
+    setTimeout(connect, 1500);
+  };
 }
 
 replayBtn.onclick = async () => {
@@ -88,8 +118,9 @@ replayBtn.onclick = async () => {
   try {
     await fetch("/api/replay", { method: "POST" });
   } catch (e) {
-    system(`リプレイ開始に失敗: ${e}`);
-    replayBtn.disabled = false;
+    statusEl.textContent = `リプレイ開始に失敗: ${e}`;
+  } finally {
+    setTimeout(() => (replayBtn.disabled = false), 1000);
   }
 };
 

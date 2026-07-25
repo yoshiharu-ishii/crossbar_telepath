@@ -15,8 +15,10 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-1")
 
 # Connectが通話ごとに作るKVSストリーム名の頭。infra/の var.project と揃える
 KVS_STREAM_PREFIX = os.getenv("KVS_STREAM_PREFIX", "crossbar-telepath")
-# 新しい通話ストリームを探す間隔(秒)
-KVS_POLL_INTERVAL = float(os.getenv("KVS_POLL_INTERVAL", "3"))
+
+# 呼の設定が届くシグナリング用キュー(infra/signaling.tf が作る)
+CALL_EVENTS_QUEUE = os.getenv("CALL_EVENTS_QUEUE", f"{KVS_STREAM_PREFIX}-call-events")
+SQS_WAIT_SECONDS = int(os.getenv("SQS_WAIT_SECONDS", "20"))
 
 # Connectのメディアストリーミングは 8kHz / 16bit / mono の生PCM
 SOURCE_RATE = 8000

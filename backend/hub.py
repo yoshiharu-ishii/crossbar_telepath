@@ -119,8 +119,9 @@ class Hub:
 class CallSession:
     """1つの呼の処理。MKVをパースし、話者別のTranscriberへ配る。
 
-    persist=True(実通話)なら、受信した生バイト列を録音としてteeする。
-    リプレイは元ファイルが既にあるので保存しない。
+    - record_audio: 受信した生バイト列を録音としてteeする(実通話)
+    - save_transcript: 終了時に呼の記録をディスクへ書く(実通話と再文字起こし)
+    開発用のファイルリプレイはどちらも行わない。
     """
 
     def __init__(
@@ -129,11 +130,13 @@ class CallSession:
         contact_id: str,
         label: str,
         customer_number: str | None = None,
-        persist: bool = False,
+        record_audio: bool = False,
+        save_transcript: bool = False,
     ) -> None:
         self.hub = hub
         self.contact_id = contact_id
-        self.persist = persist
+        self.record_audio = record_audio
+        self.save_transcript = save_transcript
         self.record = CallRecord(contact_id=contact_id, label=label, customer_number=customer_number)
         self._parser = MkvStreamParser()
         self._transcribers: dict[str, Transcriber] = {}
@@ -142,7 +145,7 @@ class CallSession:
         await self.hub.call_started(self.record)
         log.info("call started: %s (%s)", self.contact_id, self.record.label)
         rec_file = None
-        if self.persist:
+        if self.record_audio:
             path = history.recording_path(self.contact_id)
             path.parent.mkdir(parents=True, exist_ok=True)
             rec_file = path.open("wb")
@@ -160,7 +163,7 @@ class CallSession:
             if rec_file:
                 rec_file.close()
             await self._close_all()
-            await self.hub.call_ended(self.contact_id, persist=self.persist)
+            await self.hub.call_ended(self.contact_id, persist=self.save_transcript)
             log.info("call ended: %s", self.contact_id)
 
     async def _emit(self, msg: dict) -> None:

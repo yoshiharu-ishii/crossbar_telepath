@@ -22,9 +22,10 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+import audio
 import history
 import signaling
 import sources
@@ -106,7 +107,8 @@ async def _watch_signaling() -> None:
             contact_id=ev.contact_id,
             label=ev.stream_arn.rsplit("/", 2)[-2],
             customer_number=ev.customer_number,
-            persist=True,
+            record_audio=True,
+            save_transcript=True,
         )
         _start_session(session, sources.stream_from_kvs(ev.stream_arn, ev.start_fragment))
 
@@ -150,12 +152,9 @@ def api_history_one(contact_id: str) -> dict:
 
 
 @app.post("/api/replay")
-async def api_replay(
-    file: str = "call.mkv", contact_id: str | None = None, speed: float = 1.0
-) -> dict:
-    """録音を流して、架電せずに画面まで通しで試す。
+async def api_replay(file: str = "call.mkv", speed: float = 1.0) -> dict:
+    """開発用: recordings/ 直下のMKVを流して、架電せずに画面まで通しで試す。
 
-    contact_id を渡すと過去の呼の録音を、file なら recordings/ 直下のMKVを流す。
     連打で同時セッションが積み上がらないよう、リプレイは同時1本まで(実通話は無制限)。
     """
     running = [
@@ -164,24 +163,63 @@ async def api_replay(
     ]
     if running:
         raise HTTPException(409, "リプレイが既に実行中です。終了を待ってください")
-    if contact_id:
-        try:
-            path = history.recording_path(contact_id)
-        except ValueError:
-            raise HTTPException(400, "不正なcontact_id")
-        label = f"replay:{contact_id[:8]}"
-    else:
-        path = RECORDINGS_DIR / file
-        if path.parent != RECORDINGS_DIR:
-            raise HTTPException(400, "fileはrecordings/直下のみ")
-        label = f"replay:{file}"
+    path = RECORDINGS_DIR / file
+    if path.parent != RECORDINGS_DIR:
+        raise HTTPException(400, "fileはrecordings/直下のみ")
     if not path.exists():
         raise HTTPException(404, f"{path.name} がありません")
 
     new_id = f"replay-{uuid.uuid4().hex[:8]}"
-    session = CallSession(hub, contact_id=new_id, label=label)
+    session = CallSession(hub, contact_id=new_id, label=f"replay:{file}")
     _start_session(session, sources.replay_file(path, speed))
     return {"status": "started", "contact_id": new_id, "source": path.name, "speed": speed}
+
+
+@app.post("/api/reprocess/{contact_id}")
+async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
+    """過去の呼を**同じCallIDのまま**再文字起こしする。履歴は増えない。
+
+    録音MKVをパイプラインに流し直し、終了時に記録を上書き保存する。
+    """
+    if contact_id in _sessions and not _sessions[contact_id].done():
+        raise HTTPException(409, "この呼は処理中です")
+    try:
+        path = history.recording_path(contact_id)
+    except ValueError:
+        raise HTTPException(400, "不正なcontact_id")
+    if not path.exists():
+        raise HTTPException(404, "この呼の録音がありません")
+
+    # 元の呼のメタ(発信者番号・開始時刻)を引き継ぐ
+    old = hub.get_record(contact_id)
+    meta = old.meta() if old else (history.load_record(contact_id) or {})
+    session = CallSession(
+        hub,
+        contact_id=contact_id,
+        label=meta.get("label") or "reprocess",
+        customer_number=meta.get("customer_number"),
+        save_transcript=True,
+    )
+    if meta.get("started_at"):
+        session.record.started_at = meta["started_at"]
+    _start_session(session, sources.replay_file(path, speed))
+    return {"status": "started", "contact_id": contact_id, "speed": speed}
+
+
+@app.get("/api/recordings/{contact_id}.wav")
+def api_recording_wav(contact_id: str) -> Response:
+    """録音を左=相手/右=こちらのステレオWAVで返す(ブラウザ再生用)。"""
+    try:
+        path = history.recording_path(contact_id)
+    except ValueError:
+        raise HTTPException(400, "不正なcontact_id")
+    if not path.exists():
+        raise HTTPException(404, "この呼の録音がありません")
+    try:
+        wav = audio.mkv_to_stereo_wav(path.read_bytes())
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return Response(wav, media_type="audio/wav")
 
 
 @app.get("/api/streams")

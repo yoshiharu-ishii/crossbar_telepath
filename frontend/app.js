@@ -61,9 +61,8 @@ function renderHead(m) {
   headEl.innerHTML = "";
   const parts = [
     m.live ? "🟢 通話中" : `終了 ${clock(m.ended_at)}`,
-    m.customer_number,
     shortId(m.contact_id),
-    m.label,
+    m.customer_number,
     `開始 ${day(m.started_at)} ${clock(m.started_at)}`,
   ].filter(Boolean);
   for (const p of parts) {
@@ -71,10 +70,30 @@ function renderHead(m) {
     s.textContent = p;
     headEl.appendChild(s);
   }
+  // 呼の操作卓: 録音の再生/停止と、同じCallIDでの再文字起こし
   if (!m.live && m.has_recording) {
+    const audio = document.createElement("audio");
+    audio.controls = true;
+    audio.preload = "none";
+    audio.src = `/api/recordings/${m.contact_id}.wav`;
+    audio.title = "左=相手 / 右=こちら";
+    audio.style.height = "32px";
+    headEl.appendChild(audio);
+
     const b = document.createElement("button");
-    b.textContent = "この呼をリプレイ";
-    b.onclick = () => replay({ contact_id: m.contact_id });
+    b.textContent = "再文字起こし";
+    b.title = "録音から文字起こしを作り直す(履歴は増えない)";
+    b.onclick = async () => {
+      b.disabled = true;
+      const res = await fetch(`/api/reprocess/${m.contact_id}?speed=2.0`, { method: "POST" })
+        .catch(() => null);
+      if (!res?.ok) {
+        const body = res ? await res.json().catch(() => ({})) : {};
+        statusEl.textContent = body.detail || "再文字起こしを開始できませんでした";
+        setTimeout(() => (statusEl.textContent = "待機中"), 3000);
+        b.disabled = false;
+      }
+    };
     headEl.appendChild(b);
   }
 }

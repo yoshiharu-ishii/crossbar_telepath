@@ -52,7 +52,14 @@ resource "aws_connect_contact_flow" "inbound" {
   name        = "${var.project}-inbound"
   description = "録音同意アナウンス後にKVSへのメディアストリーミングを開始する検証用フロー"
   type        = "CONTACT_FLOW"
-  content     = file("${path.module}/flows/inbound.json")
+
+  # Lambda ARNを埋め込む。フローはSCPへのシグナリング(通知)を含む
+  content = templatefile("${path.module}/flows/inbound.json.tftpl", {
+    lambda_arn = aws_lambda_function.call_notifier.arn
+  })
+
+  # Connectインスタンスに関数が紐付いてからフローを作る
+  depends_on = [aws_connect_lambda_function_association.call_notifier]
 }
 
 # ---------------------------------------------------------------

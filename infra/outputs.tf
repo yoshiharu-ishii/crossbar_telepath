@@ -18,6 +18,16 @@ output "contact_flow_id" {
   value       = aws_connect_contact_flow.inbound.contact_flow_id
 }
 
+output "call_events_queue_url" {
+  description = "呼の設定を受け取るSQSキュー(SCPがポーリングする)"
+  value       = aws_sqs_queue.call_events.url
+}
+
+output "call_events_queue_name" {
+  description = "SCPが名前解決に使うキュー名"
+  value       = aws_sqs_queue.call_events.name
+}
+
 output "kvs_stream_prefix" {
   description = "KVSストリーム名のプレフィックス(実ストリーム名は <prefix>-connect-<alias>-contact-...)"
   value       = var.project

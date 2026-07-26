@@ -18,3 +18,4 @@ crash.log
 # Docker
 *.local.yml
 tfplan
+infra/.build/

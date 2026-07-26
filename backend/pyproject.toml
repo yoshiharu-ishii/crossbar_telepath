@@ -1,0 +1,14 @@
+[project]
+name = "crossbar-telepath"
+version = "0.1.0"
+description = "通話の両話者をチャンネル分離してリアルタイムに文字起こし・心理分析する消費サービス"
+readme = "../README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "websockets>=13",
+    "python-dotenv>=1.0",
+    "numpy>=2.1",
+    "boto3>=1.35",
+]

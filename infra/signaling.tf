@@ -10,7 +10,10 @@ resource "aws_sqs_queue" "call_events" {
   name = "${var.project}-call-events"
   # SCPが取りこぼしても再受信できるよう、可視性タイムアウトは短めに
   visibility_timeout_seconds = 30
-  message_retention_seconds  = 3600
+  # KVSの保持期間(24h)に揃える。SCP停止中に来た呼はキューで待ち、
+  # SCP起動時にStartFragmentNumberからアーカイブを遡って自動処理される
+  # (=シグナリングがそのまま留守番録音の再生キューになる)
+  message_retention_seconds  = 86400
 }
 
 data "archive_file" "call_notifier" {

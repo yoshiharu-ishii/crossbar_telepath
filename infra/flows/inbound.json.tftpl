@@ -11,7 +11,8 @@
       "NotifySCP": { "position": { "x": 1100, "y": 20 }, "isFriendlyName": true, "dynamicMetadata": {} },
       "NotifyError": { "position": { "x": 1100, "y": 380 }, "isFriendlyName": true },
       "StreamingStarted": { "position": { "x": 1340, "y": 140 }, "isFriendlyName": true },
-      "Silence1Min": { "position": { "x": 1100, "y": 20 }, "isFriendlyName": true },
+      "Silence30s": { "position": { "x": 1580, "y": 20 }, "isFriendlyName": true },
+      "PromptTick": { "position": { "x": 1580, "y": 260 }, "isFriendlyName": true },
       "SilenceLoop": { "position": { "x": 1340, "y": 20 }, "isFriendlyName": true },
       "Goodbye": { "position": { "x": 1580, "y": 20 }, "isFriendlyName": true },
       "StreamError": { "position": { "x": 860, "y": 260 }, "isFriendlyName": true },
@@ -91,7 +92,7 @@
         "Text": "解析サーバーへの通知に失敗しました。通話は継続します。"
       },
       "Transitions": {
-        "NextAction": "Silence1Min",
+        "NextAction": "Silence30s",
         "Errors": [
           { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
         ]
@@ -104,17 +105,17 @@
         "Text": "解析を開始しました。ご用件をお話しください。"
       },
       "Transitions": {
-        "NextAction": "Silence1Min",
+        "NextAction": "Silence30s",
         "Errors": [
           { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
         ]
       }
     },
     {
-      "Identifier": "Silence1Min",
+      "Identifier": "Silence30s",
       "Type": "MessageParticipant",
       "Parameters": {
-        "SSML": "<speak><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/></speak>"
+        "SSML": "<speak><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/><break time=\"5000ms\"/></speak>"
       },
       "Transitions": {
         "NextAction": "SilenceLoop",
@@ -126,18 +127,31 @@
     {
       "Identifier": "SilenceLoop",
       "Type": "Loop",
-      "Parameters": { "LoopCount": "10" },
+      "Parameters": { "LoopCount": "15" },
       "Transitions": {
         "NextAction": "Goodbye",
         "Conditions": [
           {
-            "NextAction": "Silence1Min",
+            "NextAction": "PromptTick",
             "Condition": { "Operator": "Equals", "Operands": ["ContinueLooping"] }
           },
           {
             "NextAction": "Goodbye",
             "Condition": { "Operator": "Equals", "Operands": ["DoneLooping"] }
           }
+        ]
+      }
+    },
+    {
+      "Identifier": "PromptTick",
+      "Type": "MessageParticipant",
+      "Parameters": {
+        "Text": "はい、伺っています。続けてお話しください。"
+      },
+      "Transitions": {
+        "NextAction": "Silence30s",
+        "Errors": [
+          { "NextAction": "Disconnect", "ErrorType": "NoMatchingError" }
         ]
       }
     },

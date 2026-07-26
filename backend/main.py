@@ -21,7 +21,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -56,6 +56,23 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 hub = Hub()
+
+
+@app.middleware("http")
+async def cache_control(request: Request, call_next):
+    """静的ファイルをキャッシュさせない。
+
+    realtime_voiceで踏んだ事故の再発防止: 更新後のHTMLと古いapp.jsの
+    組み合わせをブラウザが作ると、要素IDの不一致でスクリプトが例外死し
+    「画面が反応しない」状態になる(2026-07-26に実際に発生)。
+    """
+    response = await call_next(request)
+    if request.url.path == "/":
+        response.headers["Cache-Control"] = "no-store"
+    elif request.url.path.startswith("/static"):
+        # 毎回サーバーへ再検証させる(未更新なら304で転送なし)
+        response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 def _start_session(session: CallSession, source) -> None:

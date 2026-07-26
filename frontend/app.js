@@ -1,18 +1,23 @@
-// 呼の履歴リスト(左)と、選択した呼の文字起こし(右)。
+// 左ペイン = 音源の一覧(ライブ待機 / 呼の履歴 / 録音ファイル)、右ペイン = 選んだものの表示。
+//
+// モードが2つある:
+// - live:    新しい呼が来たら自動で表示を切り替えて追いかける(待機画面を含む)
+// - history: 選択した呼を見る。新しい呼が来ても画面を奪われない
 // 一覧と過去の発言はRESTから取り、進行中の差分はWebSocketで受ける。
-// WSの全イベントは contact_id を持つので、選択中の呼のものだけ描画する。
 
+const liveItemEl = document.getElementById("live-item");
 const listEl = document.getElementById("list");
 const listEmptyEl = document.getElementById("list-empty");
+const filesEl = document.getElementById("files");
 const feedEl = document.getElementById("feed");
 const headEl = document.getElementById("call-head");
 const statusEl = document.getElementById("status");
-const replayFileBtn = document.getElementById("replay-file");
 
 const WHO = { customer: "相手 (FROM_CUSTOMER)", agent: "こちら (TO_CUSTOMER)" };
 const calls = new Map(); // contact_id -> meta
-let selectedId = null;
-let bubbles = new Map(); // 選択中の呼の item_id -> element
+let mode = "live";
+let selectedId = null; // 右ペインに表示中の呼
+let bubbles = new Map();
 
 function clock(ts) {
   return ts ? new Date(ts * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "";
@@ -23,8 +28,25 @@ function day(ts) {
 function shortId(id) {
   return id && id.length > 12 ? `${id.slice(0, 8)}…` : id || "";
 }
+function liveCall() {
+  return [...calls.values()]
+    .filter((c) => c.live)
+    .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))[0];
+}
 
-// ---- 左ペイン: 呼リスト ----
+// ---- 左ペイン ----
+
+function renderLiveItem() {
+  const active = liveCall();
+  liveItemEl.innerHTML =
+    `<div class="item${mode === "live" ? " selected" : ""}">` +
+    `<div class="line1"><span class="dot${active ? " live" : ""}"></span>` +
+    `<span class="num">リアルタイム</span></div><div class="meta"></div></div>`;
+  liveItemEl.querySelector(".meta").textContent = active
+    ? `通話中 · ${shortId(active.contact_id)}`
+    : "待機中 · 呼が来ると自動表示";
+  liveItemEl.querySelector(".item").onclick = goLive;
+}
 
 function renderList() {
   const metas = [...calls.values()].sort((a, b) => (b.started_at || 0) - (a.started_at || 0));
@@ -32,12 +54,12 @@ function renderList() {
   listEl.innerHTML = "";
   for (const m of metas) {
     const div = document.createElement("div");
-    div.className = "item" + (m.contact_id === selectedId ? " selected" : "");
+    div.className =
+      "item" + (mode === "history" && m.contact_id === selectedId ? " selected" : "");
     div.innerHTML =
       `<div class="line1"><span class="dot"></span><span class="num"></span></div>` +
       `<div class="meta"></div>`;
     if (m.live) div.querySelector(".dot").classList.add("live");
-    // 主キーはCallID。番号やリプレイ元はメタ行に回す
     div.querySelector(".num").textContent = shortId(m.contact_id);
     div.querySelector(".meta").textContent = [
       `${day(m.started_at)} ${clock(m.started_at)}`,
@@ -45,8 +67,41 @@ function renderList() {
       m.customer_number || (m.label?.startsWith("replay:") ? m.label : null),
       m.has_recording ? "録音あり" : null,
     ].filter(Boolean).join(" · ");
-    div.onclick = () => selectCall(m.contact_id);
+    div.onclick = () => {
+      mode = "history";
+      showCall(m.contact_id);
+    };
     listEl.appendChild(div);
+  }
+  renderLiveItem();
+}
+
+async function renderFiles() {
+  let files = [];
+  try {
+    files = await (await fetch("/api/recording-files")).json();
+  } catch { /* 一覧が取れなくても本体機能には影響しない */ }
+  filesEl.innerHTML = "";
+  for (const f of files) {
+    const div = document.createElement("div");
+    div.className = "item";
+    div.innerHTML =
+      `<div class="line1"><span class="dot"></span><span class="num"></span></div>` +
+      `<div class="meta"></div>`;
+    div.querySelector(".num").textContent = f.file;
+    div.querySelector(".meta").textContent =
+      `${Math.round(f.size / 1024)} KB · クリックでリプレイ`;
+    div.onclick = async () => {
+      mode = "live"; // リプレイは開始したら追いかける
+      const res = await fetch(`/api/replay?file=${encodeURIComponent(f.file)}`, { method: "POST" })
+        .catch(() => null);
+      if (!res?.ok) {
+        const body = res ? await res.json().catch(() => ({})) : {};
+        statusEl.textContent = body.detail || "リプレイを開始できませんでした";
+        setTimeout(() => (statusEl.textContent = "待機中"), 3000);
+      }
+    };
+    filesEl.appendChild(div);
   }
 }
 
@@ -55,7 +110,24 @@ function upsertCall(meta) {
   renderList();
 }
 
-// ---- 右ペイン: 選択した呼 ----
+// ---- 右ペイン ----
+
+function renderStandby() {
+  selectedId = null;
+  bubbles = new Map();
+  headEl.innerHTML = `<span>🟢 リアルタイム待機中</span><span>呼が来るとここに自動表示されます</span>`;
+  feedEl.innerHTML = `<div class="quiet">架電するか、左の録音ファイルをリプレイしてください。</div>`;
+}
+
+function goLive() {
+  mode = "live";
+  const active = liveCall();
+  if (active) showCall(active.contact_id);
+  else {
+    renderStandby();
+    renderList();
+  }
+}
 
 function renderHead(m) {
   headEl.innerHTML = "";
@@ -126,7 +198,7 @@ function applyTranscript(msg) {
   feedEl.scrollTop = feedEl.scrollHeight;
 }
 
-async function selectCall(id) {
+async function showCall(id) {
   selectedId = id;
   bubbles = new Map();
   feedEl.innerHTML = "";
@@ -151,8 +223,7 @@ function handle(msg) {
   switch (msg.type) {
     case "call_started": {
       upsertCall(msg);
-      // 新しい呼(実通話・リプレイとも)は自動で選択して追いかける
-      selectCall(msg.contact_id);
+      if (mode === "live") showCall(msg.contact_id);
       break;
     }
     case "call_ended": {
@@ -195,31 +266,15 @@ function connect() {
   };
 }
 
-async function replay(params) {
-  const q = new URLSearchParams(params);
-  try {
-    const res = await fetch(`/api/replay?${q}`, { method: "POST" });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      statusEl.textContent = body.detail || `リプレイ開始に失敗 (${res.status})`;
-      setTimeout(() => (statusEl.textContent = "待機中"), 3000);
-    }
-  } catch (e) {
-    statusEl.textContent = `リプレイ開始に失敗: ${e}`;
-  }
-}
-
-replayFileBtn.onclick = () => replay({ file: "call.mkv" });
-
 async function init() {
   try {
     const metas = await (await fetch("/api/history")).json();
     for (const m of metas) calls.set(m.contact_id, m);
-    renderList();
-    if (metas.length) selectCall(metas[0].contact_id);
   } catch {
     statusEl.textContent = "履歴の取得に失敗";
   }
+  renderFiles();
+  goLive(); // 初期表示はライブ待機(通話中の呼があればそれを表示)
   connect();
 }
 

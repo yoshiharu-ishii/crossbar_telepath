@@ -222,6 +222,17 @@ def api_recording_wav(contact_id: str) -> Response:
     return Response(wav, media_type="audio/wav")
 
 
+@app.get("/api/recording-files")
+def api_recording_files() -> list[dict]:
+    """開発用リプレイに使える recordings/ 直下のMKV一覧。"""
+    if not RECORDINGS_DIR.exists():
+        return []
+    return [
+        {"file": p.name, "size": p.stat().st_size}
+        for p in sorted(RECORDINGS_DIR.glob("*.mkv"))
+    ]
+
+
 @app.get("/api/streams")
 def api_streams() -> list[dict]:
     """KVS上の通話ストリーム(シグナリングが動かないときの切り分け用)。"""

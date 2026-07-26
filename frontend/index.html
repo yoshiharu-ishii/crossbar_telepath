@@ -92,13 +92,16 @@
   <h1>リアルタイム識字</h1>
   <span id="status">接続中…</span>
   <span class="spacer"></span>
-  <button id="replay-file">録音をリプレイ</button>
 </header>
 <div id="layout">
   <aside>
+    <div class="side-head">ライブ</div>
+    <div id="live-item"></div>
     <div class="side-head">呼の履歴</div>
     <div id="list"></div>
-    <div id="list-empty">まだ呼がありません。<br />架電するか「録音をリプレイ」。</div>
+    <div id="list-empty">まだ呼がありません。</div>
+    <div class="side-head">録音ファイル(開発用リプレイ)</div>
+    <div id="files"></div>
   </aside>
   <main>
     <div id="call-head"><span class="quiet" style="padding:0">呼を選択してください</span></div>

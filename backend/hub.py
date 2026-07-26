@@ -42,6 +42,10 @@ class CallRecord:
     messages: list[dict] = field(default_factory=list)
 
     def meta(self) -> dict:
+        try:
+            has_recording = history.recording_path(self.contact_id).exists()
+        except ValueError:
+            has_recording = False
         return {
             "contact_id": self.contact_id,
             "label": self.label,
@@ -49,6 +53,7 @@ class CallRecord:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "message_count": len(self.messages),
+            "has_recording": has_recording,
             "live": self.ended_at is None,
         }
 

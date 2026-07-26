@@ -46,6 +46,16 @@ uv run --directory backend uvicorn main:app --port 8000
 
 http://localhost:8000 を開く。コンテナなら `docker compose up --build`。
 
+### 呼の履歴と録音
+
+実通話は呼ごとに自動で記録される(交換機のCDR+録音アーカイブに相当):
+
+- `recordings/calls/<contact_id>.json` — メタ情報(発信者番号・開始/終了時刻)と確定発言
+- `recordings/calls/<contact_id>.mkv` — KVSから受けた生の音声(話者別2トラックのまま)
+
+WebUIは左ペインの履歴から呼を選択して閲覧する。過去の呼は「この呼をリプレイ」で
+音声から再処理できる(文字起こしモデルの変更やPH3の分析を過去の呼で試すときに使う)。
+
 ### 架電せずに試す(リプレイ)
 
 `recordings/` に置いたKVS録音(MKV)を実時間のペースで流し込み、画面まで通しで確認できる。
@@ -53,6 +63,8 @@ UIの「録音をリプレイ」ボタン、またはAPIから:
 
 ```bash
 curl -X POST 'http://localhost:8000/api/replay?file=call.mkv&speed=1.0'
+# 過去の呼を再処理する場合
+curl -X POST 'http://localhost:8000/api/replay?contact_id=<呼のID>'
 ```
 
 ### 実通話を拾う
@@ -77,6 +89,7 @@ WATCH_CALLS=1 uv run --directory backend uvicorn main:app --port 8000
 | `backend/transcribe.py` | 話者1人ぶんのRealtime文字起こしセッション |
 | `backend/signaling.py` | 呼の設定をSQSから受け取る |
 | `backend/sources.py` | KVSライブ受信とファイルリプレイ |
+| `backend/history.py` | 呼ごとの記録の永続化(CDR+録音アーカイブ) |
 | `backend/hub.py` | 呼ごとのセッション管理とブラウザ配信 |
 | `frontend/` | 話者別チャット表示のWebUI |
 | `tools/extract_audio.py` | 録音MKVから話者別WAVを抽出(オフライン検証用) |

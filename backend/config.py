@@ -8,6 +8,8 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent  # backend/
 FRONTEND_DIR = BASE_DIR.parent / "frontend"
 RECORDINGS_DIR = Path(os.getenv("RECORDINGS_DIR", BASE_DIR.parent / "recordings"))
+# 呼ごとの録音(MKV)と履歴(JSON)の置き場。通話録音なのでgit管理外
+CALLS_DIR = RECORDINGS_DIR / "calls"
 
 load_dotenv(BASE_DIR / ".env")
 

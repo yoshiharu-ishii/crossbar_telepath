@@ -2,11 +2,13 @@
 
 呼の到来はシグナリング(SQS)で知り、音声は通話路(KVS)から受ける。
 交換機と同じく制御信号と通話路を分離しているので、呼とストリームの対応を
-推測する必要がない。APIキーはサーバー側にのみ置き、ブラウザには渡さない。
+推測する必要がない。呼はすべて記録され、履歴から選択・リプレイできる。
+APIキーはサーバー側にのみ置き、ブラウザには渡さない。
 
 構成: config(設定) / mkv(EBML逐次パース) / audio(リサンプル) /
 transcribe(Realtime API) / signaling(呼の受信) / sources(KVS・リプレイ) /
-hub(呼のセッションと配信)。このファイルは組み立てとルーティングだけを持つ。
+history(呼記録の永続化) / hub(呼のセッションと配信)。
+このファイルは組み立てとルーティングだけを持つ。
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+import history
 import signaling
 import sources
 from config import FRONTEND_DIR, RECORDINGS_DIR
@@ -86,6 +89,7 @@ async def _watch_signaling() -> None:
             contact_id=ev.contact_id,
             label=ev.stream_arn.rsplit("/", 2)[-2],
             customer_number=ev.customer_number,
+            persist=True,
         )
         _start_session(session, sources.stream_from_kvs(ev.stream_arn, ev.start_fragment))
 
@@ -102,10 +106,58 @@ async def ws_endpoint(ws: WebSocket) -> None:
         hub.disconnect(ws)
 
 
-@app.get("/api/calls")
-def api_calls() -> list[dict]:
-    """処理中の呼。"""
-    return hub.active_calls()
+@app.get("/api/history")
+def api_history() -> list[dict]:
+    """呼の一覧。処理中+終了直後(メモリ)+保存済み(ディスク)を新しい順で。"""
+    in_memory = [c.meta() for c in hub.active.values()] + [
+        c.meta() for c in hub.recent.values()
+    ]
+    seen = {c["contact_id"] for c in in_memory}
+    saved = [r for r in history.list_records() if r["contact_id"] not in seen]
+    return sorted(in_memory + saved, key=lambda r: r.get("started_at") or 0, reverse=True)
+
+
+@app.get("/api/history/{contact_id}")
+def api_history_one(contact_id: str) -> dict:
+    """1つの呼の記録(メモリ上を優先、なければディスクから)。"""
+    call = hub.get_record(contact_id)
+    if call is not None:
+        return call.as_dict()
+    try:
+        rec = history.load_record(contact_id)
+    except ValueError:
+        raise HTTPException(400, "不正なcontact_id")
+    if rec is None:
+        raise HTTPException(404, f"呼 {contact_id} の記録がありません")
+    return rec
+
+
+@app.post("/api/replay")
+async def api_replay(
+    file: str = "call.mkv", contact_id: str | None = None, speed: float = 1.0
+) -> dict:
+    """録音を流して、架電せずに画面まで通しで試す。
+
+    contact_id を渡すと過去の呼の録音を、file なら recordings/ 直下のMKVを流す。
+    """
+    if contact_id:
+        try:
+            path = history.recording_path(contact_id)
+        except ValueError:
+            raise HTTPException(400, "不正なcontact_id")
+        label = f"replay:{contact_id[:8]}"
+    else:
+        path = RECORDINGS_DIR / file
+        if path.parent != RECORDINGS_DIR:
+            raise HTTPException(400, "fileはrecordings/直下のみ")
+        label = f"replay:{file}"
+    if not path.exists():
+        raise HTTPException(404, f"{path.name} がありません")
+
+    new_id = f"replay-{uuid.uuid4().hex[:8]}"
+    session = CallSession(hub, contact_id=new_id, label=label)
+    _start_session(session, sources.replay_file(path, speed))
+    return {"status": "started", "contact_id": new_id, "source": path.name, "speed": speed}
 
 
 @app.get("/api/streams")
@@ -115,18 +167,6 @@ def api_streams() -> list[dict]:
         {"name": s["StreamName"], "arn": s["StreamARN"], "created": str(s["CreationTime"])}
         for s in sources.list_call_streams()
     ]
-
-
-@app.post("/api/replay")
-async def api_replay(file: str = "call.mkv", speed: float = 1.0) -> dict:
-    """録音済みMKVを流して、架電せずに画面まで通しで試す。"""
-    path = RECORDINGS_DIR / file
-    if not path.exists():
-        raise HTTPException(404, f"{path} がありません")
-    contact_id = f"replay-{uuid.uuid4().hex[:8]}"
-    session = CallSession(hub, contact_id=contact_id, label=f"replay:{file}")
-    _start_session(session, sources.replay_file(path, speed))
-    return {"status": "started", "contact_id": contact_id, "file": file, "speed": speed}
 
 
 @app.get("/api/health")

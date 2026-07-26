@@ -156,7 +156,14 @@ async def api_replay(
     """録音を流して、架電せずに画面まで通しで試す。
 
     contact_id を渡すと過去の呼の録音を、file なら recordings/ 直下のMKVを流す。
+    連打で同時セッションが積み上がらないよう、リプレイは同時1本まで(実通話は無制限)。
     """
+    running = [
+        cid for cid, t in _sessions.items()
+        if cid.startswith("replay-") and not t.done()
+    ]
+    if running:
+        raise HTTPException(409, "リプレイが既に実行中です。終了を待ってください")
     if contact_id:
         try:
             path = history.recording_path(contact_id)

@@ -37,11 +37,14 @@ function renderList() {
       `<div class="line1"><span class="dot"></span><span class="num"></span></div>` +
       `<div class="meta"></div>`;
     if (m.live) div.querySelector(".dot").classList.add("live");
-    div.querySelector(".num").textContent = m.customer_number || m.label || shortId(m.contact_id);
-    div.querySelector(".meta").textContent =
-      `${day(m.started_at)} ${clock(m.started_at)}` +
-      (m.live ? " · 通話中" : ` · ${m.message_count ?? 0}件`) +
-      (m.has_recording ? " · 録音あり" : "");
+    // 主キーはCallID。番号やリプレイ元はメタ行に回す
+    div.querySelector(".num").textContent = shortId(m.contact_id);
+    div.querySelector(".meta").textContent = [
+      `${day(m.started_at)} ${clock(m.started_at)}`,
+      m.live ? "通話中" : `${m.message_count ?? 0}件`,
+      m.customer_number || (m.label?.startsWith("replay:") ? m.label : null),
+      m.has_recording ? "録音あり" : null,
+    ].filter(Boolean).join(" · ");
     div.onclick = () => selectCall(m.contact_id);
     listEl.appendChild(div);
   }
@@ -176,7 +179,12 @@ function connect() {
 async function replay(params) {
   const q = new URLSearchParams(params);
   try {
-    await fetch(`/api/replay?${q}`, { method: "POST" });
+    const res = await fetch(`/api/replay?${q}`, { method: "POST" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      statusEl.textContent = body.detail || `リプレイ開始に失敗 (${res.status})`;
+      setTimeout(() => (statusEl.textContent = "待機中"), 3000);
+    }
   } catch (e) {
     statusEl.textContent = `リプレイ開始に失敗: ${e}`;
   }

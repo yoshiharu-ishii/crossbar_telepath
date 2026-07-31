@@ -108,7 +108,8 @@ class Hub:
         call.ended_at = time.time()
         if persist:
             try:
-                history.save_record(call.as_dict())
+                # DBやS3への書き込みでイベントループを止めない
+                await asyncio.to_thread(history.save_record, call.as_dict())
             except Exception:
                 log.exception("呼記録の保存に失敗: %s", contact_id)
         self.recent[contact_id] = call
@@ -172,7 +173,9 @@ class CallSession:
                 rec_file.close()
             if tmp_path:
                 try:
-                    storage.put_recording(self.contact_id, tmp_path.read_bytes())
+                    await asyncio.to_thread(
+                        storage.put_recording, self.contact_id, tmp_path.read_bytes()
+                    )
                 except Exception:
                     log.exception("録音の保存に失敗: %s", self.contact_id)
                 finally:

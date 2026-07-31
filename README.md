@@ -48,10 +48,21 @@ http://localhost:8000 を開く。コンテナなら `docker compose up --build`
 
 ### 呼の履歴と録音
 
-実通話は呼ごとに自動で記録される(交換機のCDR+録音アーカイブに相当):
+実通話は呼ごとに自動で記録される(交換機のCDR+録音アーカイブに相当)。
+置き場は環境変数で決まり、**ローカルと本番で同じAPI・同じエンジン**を使う:
 
-- `recordings/calls/<contact_id>.json` — メタ情報(発信者番号・開始/終了時刻)と確定発言
-- `recordings/calls/<contact_id>.mkv` — KVSから受けた生の音声(話者別2トラックのまま)
+| 記録 | ローカル(compose) | 本番 | 未設定時 |
+|---|---|---|---|
+| 呼のメタ・発話 | PostgreSQL | Aurora PostgreSQL | `recordings/calls/*.json` |
+| 通話音声(MKV原本) | MinIO | S3 | `recordings/calls/*.mkv` |
+
+`DATABASE_URL` と `S3_BUCKET` を空にすればファイルだけで動くので、
+コンテナを立てずに開発することもできる。既存の記録を移すには:
+
+```bash
+uv run python ../tools/migrate_history.py      # JSON → DB
+uv run python ../tools/migrate_recordings.py   # ローカルMKV → オブジェクトストレージ
+```
 
 WebUIは左ペインの履歴から呼を選択して閲覧する。過去の呼は「この呼をリプレイ」で
 音声から再処理できる(文字起こしモデルの変更やPH3の分析を過去の呼で試すときに使う)。
@@ -88,8 +99,10 @@ WATCH_CALLS=1 uv run --directory backend uvicorn main:app --port 8000
 | `backend/audio.py` | 電話帯域8kHz → Realtime APIの24kHzへリサンプル |
 | `backend/transcribe.py` | 話者1人ぶんのRealtime文字起こしセッション |
 | `backend/signaling.py` | 呼の設定をSQSから受け取る |
-| `backend/sources.py` | KVSライブ受信とファイルリプレイ |
-| `backend/history.py` | 呼ごとの記録の永続化(CDR+録音アーカイブ) |
+| `backend/sources.py` | KVSライブ受信とリプレイ |
+| `backend/history.py` | 呼の記録(CDR)の永続化。DBとファイルを切り替える |
+| `backend/db.py` | CDRのPostgreSQL実装(スキーマもここ) |
+| `backend/storage.py` | 録音の置き場(S3互換。MinIO/S3/ローカル) |
 | `backend/hub.py` | 呼ごとのセッション管理とブラウザ配信 |
 | `frontend/` | 話者別チャット表示のWebUI |
 | `tools/extract_audio.py` | 録音MKVから話者別WAVを抽出(オフライン検証用) |

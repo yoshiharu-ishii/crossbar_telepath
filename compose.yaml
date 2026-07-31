@@ -1,7 +1,9 @@
 # ローカル起動: docker compose up --build (http://localhost:8000)
 #   MinIOコンソール: http://localhost:9001 (既定 crossbar / crossbar-dev-secret)
 #
-# 本番との対応: MinIO ↔ S3。boto3のendpoint_urlが変わるだけでコードは同じ。
+# 本番との対応: MinIO ↔ S3、PostgreSQL ↔ Aurora PostgreSQL。
+# どちらも同じAPI・同じエンジンをローカルで動かしているので、移行時に
+# コードや方言の差で驚くことがない。
 # 秘密(APIキー等)は backend/.env から注入し、イメージには焼かない。
 services:
   app:
@@ -19,8 +21,10 @@ services:
       S3_BUCKET: "${S3_BUCKET:-crossbar-telepath-recordings}"
       AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-crossbar}"
       AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-crossbar-dev-secret}"
+      # 呼の記録の置き場。空にするとファイル(recordings/calls/*.json)で動く
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-crossbar}:${POSTGRES_PASSWORD:-crossbar-dev-secret}@db:5432/${POSTGRES_DB:-crossbar}"
     volumes:
-      # 呼の記録(JSON)を書くので読み書き可。録音はMinIOへ行くのでここには増えない
+      # リプレイ用の録音を読む。DB/MinIO運用ではここに新しく増えることはない
       - ./recordings:/app/recordings
       # KVSやSQSを叩くときはホストのAWS認証情報を借りる
       # (S3だけは上のMINIO資格情報が優先される)
@@ -28,6 +32,25 @@ services:
     depends_on:
       minio-init:
         condition: service_completed_successfully
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-crossbar}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-crossbar-dev-secret}"
+      POSTGRES_DB: "${POSTGRES_DB:-crossbar}"
+    ports:
+      # ホストの5432と衝突しないようずらす
+      - "5433:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crossbar} -d ${POSTGRES_DB:-crossbar}"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
 
   minio:
     image: minio/minio
@@ -65,3 +88,4 @@ services:
 
 volumes:
   minio-data:
+  db-data:

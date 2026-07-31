@@ -42,6 +42,8 @@ _sessions: dict[str, asyncio.Task] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    history.init()
+    log.info("呼の記録: %s / 録音: %s", history.backend(), "s3" if storage.enabled() else "files")
     watcher = None
     if WATCH_CALLS:
         watcher = asyncio.create_task(_watch_signaling())
@@ -249,6 +251,8 @@ def api_health() -> dict:
         "status": "ok",
         "watching": WATCH_CALLS,
         "active_calls": len(_sessions),
+        "history_backend": history.backend(),
+        "recording_backend": "s3" if storage.enabled() else "files",
         "ts": time.time(),
     }
 

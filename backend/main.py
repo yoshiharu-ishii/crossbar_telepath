@@ -29,10 +29,10 @@ import audio
 import history
 import signaling
 import sources
-from config import FRONTEND_DIR, RECORDINGS_DIR
+from config import FRONTEND_DIR, LOG_LEVEL, RECORDINGS_DIR, WATCH_CALLS
 from hub import CallSession, Hub
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("main")
 
 # 呼ごとのタスク。同時に複数の呼が来ても取り違えない
@@ -42,7 +42,7 @@ _sessions: dict[str, asyncio.Task] = {}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     watcher = None
-    if os.getenv("WATCH_CALLS", "0") == "1":
+    if WATCH_CALLS:
         watcher = asyncio.create_task(_watch_signaling())
     else:
         log.info("WATCH_CALLS=0 のためシグナリング監視はしない(リプレイのみ)")
@@ -246,7 +246,7 @@ def api_streams() -> list[dict]:
 def api_health() -> dict:
     return {
         "status": "ok",
-        "watching": os.getenv("WATCH_CALLS", "0") == "1",
+        "watching": WATCH_CALLS,
         "active_calls": len(_sessions),
         "ts": time.time(),
     }

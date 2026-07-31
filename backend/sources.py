@@ -13,13 +13,14 @@ from pathlib import Path
 
 import boto3
 
-from config import AWS_REGION, KVS_STREAM_PREFIX
+from config import (
+    AWS_REGION,
+    KVS_STREAM_PREFIX,
+    REPLAY_BYTES_PER_SEC,
+    REPLAY_CHUNK_BYTES as _CHUNK,
+)
 
 log = logging.getLogger(__name__)
-
-# 8kHz/16bit の2トラック + MKVのオーバーヘッド。実測(323KB / 9.7秒)に合わせた
-REPLAY_BYTES_PER_SEC = 33_000
-_CHUNK = 4096
 
 
 async def replay_file(path: Path, speed: float = 1.0) -> AsyncIterator[bytes]:

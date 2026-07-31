@@ -17,19 +17,22 @@ import websockets
 
 from audio import Resampler
 from config import (
-    REALTIME_URL,
+    AUDIO_FLUSH_MS,
+    SAMPLE_WIDTH,
     SOURCE_RATE,
     TARGET_RATE,
     TRANSCRIBE_LANGUAGE,
     TRANSCRIBE_MODEL,
     VAD_SILENCE_MS,
-    get_openai_api_key,
+    get_api_key,
+    realtime_headers,
+    realtime_url,
 )
 
 log = logging.getLogger(__name__)
 
-# 8kHzで100ms分たまってから送る(WSメッセージを細かく刻みすぎない)
-_FLUSH_BYTES = SOURCE_RATE * 2 // 10
+# 送信前に貯めるバイト数(8kHz/16bitでAUDIO_FLUSH_MSぶん)
+_FLUSH_BYTES = SOURCE_RATE * SAMPLE_WIDTH * AUDIO_FLUSH_MS // 1000
 
 
 class Transcriber:
@@ -44,11 +47,11 @@ class Transcriber:
         self._reader: asyncio.Task | None = None
 
     async def start(self) -> None:
-        key = get_openai_api_key()
+        key = get_api_key()
         if not key:
-            raise RuntimeError("OPENAI_API_KEY が設定されていません")
+            raise RuntimeError("APIキーが .env に設定されていません")
         self._ws = await websockets.connect(
-            REALTIME_URL, additional_headers={"Authorization": f"Bearer {key}"}
+            realtime_url(), additional_headers=realtime_headers(key)
         )
         await self._ws.send(json.dumps({
             "type": "session.update",

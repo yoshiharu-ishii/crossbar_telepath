@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from fastapi import WebSocket
 
 import history
-from config import SPEAKER_BY_TRACK_NAME
+from config import MAX_RECENT_CALLS, SPEAKER_BY_TRACK_NAME
 from mkv import MkvStreamParser
 from transcribe import Transcriber
 
@@ -65,7 +65,7 @@ class Hub:
     """ブラウザ接続の集合と、処理中の呼。"""
 
     # ディスクに書かない呼(リプレイ)も、セッション中は選択できるよう残す数
-    MAX_RECENT = 10
+    MAX_RECENT = MAX_RECENT_CALLS
 
     def __init__(self) -> None:
         self._clients: set[WebSocket] = set()

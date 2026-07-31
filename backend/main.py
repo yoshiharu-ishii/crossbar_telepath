@@ -29,6 +29,7 @@ import audio
 import history
 import signaling
 import sources
+import storage
 from config import FRONTEND_DIR, LOG_LEVEL, RECORDINGS_DIR, WATCH_CALLS
 from hub import CallSession, Hub
 
@@ -184,10 +185,10 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
     if contact_id in _sessions and not _sessions[contact_id].done():
         raise HTTPException(409, "この呼は処理中です")
     try:
-        path = history.recording_path(contact_id)
+        data = storage.get_recording(contact_id)
     except ValueError:
         raise HTTPException(400, "不正なcontact_id")
-    if not path.exists():
+    if data is None:
         raise HTTPException(404, "この呼の録音がありません")
 
     # 元の呼のメタ(発信者番号・開始時刻)を引き継ぐ
@@ -202,7 +203,7 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
     )
     if meta.get("started_at"):
         session.record.started_at = meta["started_at"]
-    _start_session(session, sources.replay_file(path, speed))
+    _start_session(session, sources.replay_bytes(data, speed, contact_id))
     return {"status": "started", "contact_id": contact_id, "speed": speed}
 
 
@@ -210,13 +211,13 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
 def api_recording_wav(contact_id: str) -> Response:
     """録音を左=相手/右=こちらのステレオWAVで返す(ブラウザ再生用)。"""
     try:
-        path = history.recording_path(contact_id)
+        data = storage.get_recording(contact_id)
     except ValueError:
         raise HTTPException(400, "不正なcontact_id")
-    if not path.exists():
+    if data is None:
         raise HTTPException(404, "この呼の録音がありません")
     try:
-        wav = audio.mkv_to_stereo_wav(path.read_bytes())
+        wav = audio.mkv_to_stereo_wav(data)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return Response(wav, media_type="audio/wav")

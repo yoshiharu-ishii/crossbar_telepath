@@ -15,14 +15,18 @@ import asyncio
 import contextlib
 import json
 import logging
+import os
+import tempfile
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from fastapi import WebSocket
 
 import history
+import storage
 from config import MAX_RECENT_CALLS, SPEAKER_BY_TRACK_NAME
 from mkv import MkvStreamParser
 from transcribe import Transcriber
@@ -42,10 +46,6 @@ class CallRecord:
     messages: list[dict] = field(default_factory=list)
 
     def meta(self) -> dict:
-        try:
-            has_recording = history.recording_path(self.contact_id).exists()
-        except ValueError:
-            has_recording = False
         return {
             "contact_id": self.contact_id,
             "label": self.label,
@@ -53,7 +53,7 @@ class CallRecord:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "message_count": len(self.messages),
-            "has_recording": has_recording,
+            "has_recording": storage.has_recording(self.contact_id),
             "live": self.ended_at is None,
         }
 
@@ -149,11 +149,14 @@ class CallSession:
     async def run(self, source: AsyncIterator[bytes]) -> None:
         await self.hub.call_started(self.record)
         log.info("call started: %s (%s)", self.contact_id, self.record.label)
+        # 通話中はローカルの一時ファイルへ書き、終了時にまとめて保存する
+        # (Fargateではローカルディスクが揮発するため、置き場はstorageに委ねる)
+        tmp_path = None
         rec_file = None
         if self.record_audio:
-            path = history.recording_path(self.contact_id)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            rec_file = path.open("wb")
+            fd, name = tempfile.mkstemp(prefix=f"{self.contact_id}-", suffix=".mkv")
+            tmp_path = Path(name)
+            rec_file = os.fdopen(fd, "wb")
         try:
             async for data in source:
                 if rec_file:
@@ -167,6 +170,13 @@ class CallSession:
         finally:
             if rec_file:
                 rec_file.close()
+            if tmp_path:
+                try:
+                    storage.put_recording(self.contact_id, tmp_path.read_bytes())
+                except Exception:
+                    log.exception("録音の保存に失敗: %s", self.contact_id)
+                finally:
+                    tmp_path.unlink(missing_ok=True)
             await self._close_all()
             await self.hub.call_ended(self.contact_id, persist=self.save_transcript)
             log.info("call ended: %s", self.contact_id)

@@ -1,5 +1,8 @@
 # ローカル起動: docker compose up --build (http://localhost:8000)
-# .env は backend/.env をそのまま注入(イメージには焼かれていない)
+#   MinIOコンソール: http://localhost:9001 (既定 crossbar / crossbar-dev-secret)
+#
+# 本番との対応: MinIO ↔ S3。boto3のendpoint_urlが変わるだけでコードは同じ。
+# 秘密(APIキー等)は backend/.env から注入し、イメージには焼かない。
 services:
   app:
     build: .
@@ -11,8 +14,54 @@ services:
       # シグナリング(SQS)を監視して実通話を拾うなら 1。リプレイだけなら 0
       WATCH_CALLS: "${WATCH_CALLS:-0}"
       AWS_REGION: "${AWS_REGION:-ap-northeast-1}"
+      # 録音の置き場。本番ではこの2つを外し、S3+IAMロールに任せる
+      S3_ENDPOINT_URL: "http://minio:9000"
+      S3_BUCKET: "${S3_BUCKET:-crossbar-telepath-recordings}"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-crossbar}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-crossbar-dev-secret}"
     volumes:
-      # 録音はイメージに焼かず、開発用リプレイの入力として読むだけ
-      - ./recordings:/app/recordings:ro
-      # KVSを叩くときはホストのAWS認証情報を借りる
+      # 呼の記録(JSON)を書くので読み書き可。録音はMinIOへ行くのでここには増えない
+      - ./recordings:/app/recordings
+      # KVSやSQSを叩くときはホストのAWS認証情報を借りる
+      # (S3だけは上のMINIO資格情報が優先される)
       - ~/.aws:/root/.aws:ro
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+
+  minio:
+    image: minio/minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-crossbar}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-crossbar-dev-secret}"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  # バケットを作るだけの使い捨てコンテナ(作成済みなら何もしない)
+  minio-init:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-crossbar}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-crossbar-dev-secret}"
+      S3_BUCKET: "${S3_BUCKET:-crossbar-telepath-recordings}"
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+      mc mb --ignore-existing local/$$S3_BUCKET &&
+      echo 'bucket ready: '$$S3_BUCKET
+      "
+
+volumes:
+  minio-data:

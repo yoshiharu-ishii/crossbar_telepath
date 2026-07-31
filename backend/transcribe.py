@@ -18,6 +18,7 @@ import websockets
 from audio import Resampler
 from config import (
     AUDIO_FLUSH_MS,
+    REALTIME_URL,
     SAMPLE_WIDTH,
     SOURCE_RATE,
     TARGET_RATE,
@@ -25,8 +26,6 @@ from config import (
     TRANSCRIBE_MODEL,
     VAD_SILENCE_MS,
     get_api_key,
-    realtime_headers,
-    realtime_url,
 )
 
 log = logging.getLogger(__name__)
@@ -51,7 +50,7 @@ class Transcriber:
         if not key:
             raise RuntimeError("APIキーが .env に設定されていません")
         self._ws = await websockets.connect(
-            realtime_url(), additional_headers=realtime_headers(key)
+            REALTIME_URL, additional_headers={"Authorization": f"Bearer {key}"}
         )
         await self._ws.send(json.dumps({
             "type": "session.update",

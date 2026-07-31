@@ -40,16 +40,13 @@ SQS_WAIT_SECONDS = int(os.getenv("SQS_WAIT_SECONDS", "20"))
 # 取り逃した呼を SearchContacts から復元するときだけ要る(通常運転では未使用)
 CONNECT_INSTANCE_ID = os.getenv("CONNECT_INSTANCE_ID", "")
 
-# ---- 推論プロバイダ ---------------------------------------------------
-# openai | azure。データ主権の要件で切り替える(azure は PH4 で検証予定)
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
-OPENAI_REALTIME_URL = os.getenv(
-    "OPENAI_REALTIME_URL", "wss://api.openai.com/v1/realtime?intent=transcription"
+# ---- 推論エンドポイント -----------------------------------------------
+# OpenAI互換のエンドポイントなら差し替えられる。ただしデータ主権が要件に
+# なった場合の移行先は全AWS(Transcribe + Bedrock)を想定しており、そちらは
+# URLの付け替えでは済まず Transcriber の実装ごと差し替えになる
+REALTIME_URL = os.getenv(
+    "REALTIME_URL", "wss://api.openai.com/v1/realtime?intent=transcription"
 )
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")
-# Azureはグローバルモデル名ではなくデプロイメント名で指定する
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
-AZURE_API_VERSION = os.getenv("AZURE_API_VERSION", "2025-04-01-preview")
 
 # ---- 文字起こし -------------------------------------------------------
 TRANSCRIBE_MODEL = os.getenv("TRANSCRIBE_MODEL", "gpt-4o-transcribe")
@@ -100,30 +97,9 @@ SPEAKER_BY_TRACK_NAME = {
 
 
 def get_api_key() -> str:
-    """推論プロバイダのAPIキー。接続ごとに .env を読み直す。
+    """APIキー。接続ごとに .env を読み直す。
 
     キーを書き足した後にサーバーを再起動しなくて済むようにしている。
     """
     load_dotenv(BASE_DIR / ".env", override=True)
-    if LLM_PROVIDER == "azure":
-        return os.getenv("AZURE_OPENAI_API_KEY", "")
     return os.getenv("OPENAI_API_KEY", "")
-
-
-def realtime_url() -> str:
-    """文字起こし用Realtimeエンドポイント。プロバイダ設定から組み立てる。"""
-    if LLM_PROVIDER == "azure":
-        # PH4で検証予定。ブラウザ直WSは401になるがサーバー中継は通る見込み
-        base = AZURE_OPENAI_ENDPOINT.rstrip("/")
-        return (
-            f"{base}/openai/realtime"
-            f"?api-version={AZURE_API_VERSION}&deployment={AZURE_OPENAI_DEPLOYMENT}"
-        )
-    return OPENAI_REALTIME_URL
-
-
-def realtime_headers(api_key: str) -> dict[str, str]:
-    """WS接続時の認証ヘッダ。OpenAIはBearer、Azureは api-key と方式が違う。"""
-    if LLM_PROVIDER == "azure":
-        return {"api-key": api_key}
-    return {"Authorization": f"Bearer {api_key}"}

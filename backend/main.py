@@ -110,6 +110,7 @@ async def _watch_signaling() -> None:
             contact_id=ev.contact_id,
             label=ev.stream_arn.rsplit("/", 2)[-2],
             customer_number=ev.customer_number,
+            instance_arn=ev.instance_arn,
             record_audio=True,
             save_transcript=True,
         )
@@ -201,10 +202,13 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
         contact_id=contact_id,
         label=meta.get("label") or "reprocess",
         customer_number=meta.get("customer_number"),
+        instance_arn=meta.get("instance_arn"),
         save_transcript=True,
     )
+    # 再処理でも「いつの通話か」は動かさない
     if meta.get("started_at"):
         session.record.started_at = meta["started_at"]
+    session.record.fixed_ended_at = meta.get("ended_at")
     _start_session(session, sources.replay_bytes(data, speed, contact_id))
     return {"status": "started", "contact_id": contact_id, "speed": speed}
 

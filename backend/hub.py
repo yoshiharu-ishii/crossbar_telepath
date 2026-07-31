@@ -41,15 +41,20 @@ class CallRecord:
     contact_id: str
     label: str
     customer_number: str | None = None
+    instance_arn: str | None = None
     started_at: float = field(default_factory=time.time)
     ended_at: float | None = None
     messages: list[dict] = field(default_factory=list)
+    # 過去の呼を再処理するときは、実際に通話が終わった時刻を保つ
+    # (現在時刻で上書きすると通話時間が何日にも化ける)
+    fixed_ended_at: float | None = None
 
     def meta(self) -> dict:
         return {
             "contact_id": self.contact_id,
             "label": self.label,
             "customer_number": self.customer_number,
+            "instance_arn": self.instance_arn,
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "message_count": len(self.messages),
@@ -105,7 +110,7 @@ class Hub:
         call = self.active.pop(contact_id, None)
         if call is None:
             return
-        call.ended_at = time.time()
+        call.ended_at = call.fixed_ended_at or time.time()
         if persist:
             try:
                 # DBやS3への書き込みでイベントループを止めない
@@ -136,6 +141,7 @@ class CallSession:
         contact_id: str,
         label: str,
         customer_number: str | None = None,
+        instance_arn: str | None = None,
         record_audio: bool = False,
         save_transcript: bool = False,
     ) -> None:
@@ -143,7 +149,12 @@ class CallSession:
         self.contact_id = contact_id
         self.record_audio = record_audio
         self.save_transcript = save_transcript
-        self.record = CallRecord(contact_id=contact_id, label=label, customer_number=customer_number)
+        self.record = CallRecord(
+            contact_id=contact_id,
+            label=label,
+            customer_number=customer_number,
+            instance_arn=instance_arn,
+        )
         self._parser = MkvStreamParser()
         self._transcribers: dict[str, Transcriber] = {}
 

@@ -64,6 +64,20 @@ uv run python ../tools/migrate_history.py      # JSON → DB
 uv run python ../tools/migrate_recordings.py   # ローカルMKV → オブジェクトストレージ
 ```
 
+### スキーマ変更(Alembic)
+
+DBのスキーマはAlembicが正。アプリ起動時に `alembic upgrade head` 相当が走るので、
+開発ではサーバーを立ち上げ直すだけでスキーマが追いつく。列を足すときは:
+
+```bash
+# backend/ で db.py のテーブル定義を編集したあと
+uv run alembic revision --autogenerate -m "説明"
+uv run alembic upgrade head    # 起動時にも自動で走る
+```
+
+接続先は `alembic.ini` ではなく `.env` の `DATABASE_URL` を見る(設定の出どころを
+アプリと一本化し、iniに秘密を書かないため)。
+
 WebUIは左ペインの履歴から呼を選択して閲覧する。過去の呼は「この呼をリプレイ」で
 音声から再処理できる(文字起こしモデルの変更やPH3の分析を過去の呼で試すときに使う)。
 

@@ -31,7 +31,7 @@ from sqlalchemy import (
     select,
 )
 
-from config import DATABASE_URL
+from config import BASE_DIR, DATABASE_URL
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +43,9 @@ calls = Table(
     Column("contact_id", String(64), primary_key=True),
     Column("label", Text),
     Column("customer_number", String(32)),
+    # どのConnectインスタンス(=どの事業者の交換機)から来た呼か。
+    # シグナリングで届いているので保存する。将来テナントを分ける日の足がかり
+    Column("instance_arn", Text, index=True),
     Column("started_at", DateTime(timezone=True), nullable=False, index=True),
     Column("ended_at", DateTime(timezone=True)),
     # PH3で埋める。呼の一覧から「揉めた通話」を探せるようにするための列
@@ -82,8 +85,19 @@ def engine():
 
 
 def init_db() -> None:
-    """テーブルを作る(既にあれば何もしない)。"""
-    metadata.create_all(engine())
+    """スキーマをマイグレーションで最新にする。
+
+    create_all は既存テーブルに列を足せないので、スキーマの正はAlembicに一本化する。
+    起動のたびに `alembic upgrade head` 相当を実行するので、開発では
+    コンテナを起動し直すだけでスキーマが追いつく。
+    """
+    from alembic import command
+    from alembic.config import Config
+
+    cfg = Config(str(BASE_DIR / "alembic.ini"))
+    # アプリのログ設定をalembicのiniで上書きさせない
+    cfg.attributes["configure_logger"] = False
+    command.upgrade(cfg, "head")
     log.info("database ready: %s", DATABASE_URL.rsplit("@", 1)[-1])
 
 
@@ -106,6 +120,7 @@ def save_record(record: dict) -> None:
                 contact_id=contact_id,
                 label=record.get("label"),
                 customer_number=record.get("customer_number"),
+                instance_arn=record.get("instance_arn"),
                 started_at=_to_dt(record.get("started_at")) or datetime.now(UTC),
                 ended_at=_to_dt(record.get("ended_at")),
                 max_anger=record.get("max_anger"),
@@ -158,6 +173,7 @@ def load_record(contact_id: str) -> dict | None:
         "contact_id": call.contact_id,
         "label": call.label,
         "customer_number": call.customer_number,
+        "instance_arn": call.instance_arn,
         "started_at": _to_epoch(call.started_at),
         "ended_at": _to_epoch(call.ended_at),
         "max_anger": call.max_anger,
@@ -187,6 +203,7 @@ def list_records() -> list[dict]:
             "contact_id": r.contact_id,
             "label": r.label,
             "customer_number": r.customer_number,
+            "instance_arn": r.instance_arn,
             "started_at": _to_epoch(r.started_at),
             "ended_at": _to_epoch(r.ended_at),
             "max_anger": r.max_anger,

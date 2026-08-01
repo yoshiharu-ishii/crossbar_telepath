@@ -23,7 +23,13 @@ flowchart TD
 SQS経由で知らせる。呼とストリームの対応が確定するので取り違えが起きず、
 複数の呼が同時に来ても独立して扱える。
 
-設計の背景と技術判断は [CLAUDE.md](CLAUDE.md) を参照。
+設計の背景と技術判断は [CLAUDE.md](CLAUDE.md)、詳しい図解は `docs/` を参照。
+
+| ドキュメント | 内容 |
+|---|---|
+| [docs/architecture.md](docs/architecture.md) | 全体像、通話路とシグナリングの分離、呼のライフサイクル、モジュール構成 |
+| [docs/data-model.md](docs/data-model.md) | 原本と派生、DBスキーマ、録音の置き場、スキーマ変更(Alembic) |
+| [docs/operations.md](docs/operations.md) | 起動・設定・AWS環境の建て方・実架電の確認手順・コスト |
 
 ## 現状
 

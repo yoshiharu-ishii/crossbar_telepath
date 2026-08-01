@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -19,6 +20,8 @@ from audio import Resampler
 from config import (
     AUDIO_FLUSH_MS,
     REALTIME_URL,
+    TRANSCRIBE_CONTEXT_TURNS,
+    TRANSCRIBE_PROMPT,
     SAMPLE_WIDTH,
     SOURCE_RATE,
     TARGET_RATE,
@@ -44,6 +47,8 @@ class Transcriber:
         self._pending = bytearray()
         self._ws: websockets.ClientConnection | None = None
         self._reader: asyncio.Task | None = None
+        # 直近の確定テキスト。短い区間に文脈を与えるため prompt として回す
+        self._recent: list[str] = []
 
     async def start(self) -> None:
         key = get_api_key()
@@ -52,6 +57,19 @@ class Transcriber:
         self._ws = await websockets.connect(
             REALTIME_URL, additional_headers={"Authorization": f"Bearer {key}"}
         )
+        await self._send_session_update()
+        self._reader = asyncio.create_task(self._read_loop())
+        log.info("transcriber started: %s", self.speaker)
+
+    def _prompt(self) -> str:
+        """語彙のヒント + 直近の実際の発話。作り話は入れない。"""
+        if not self._recent:
+            return TRANSCRIBE_PROMPT
+        return f"{TRANSCRIBE_PROMPT} 直前の発話: " + " / ".join(self._recent)
+
+    async def _send_session_update(self) -> None:
+        if self._ws is None:
+            return
         await self._ws.send(json.dumps({
             "type": "session.update",
             "session": {
@@ -62,6 +80,7 @@ class Transcriber:
                         "transcription": {
                             "model": TRANSCRIBE_MODEL,
                             "language": TRANSCRIBE_LANGUAGE,
+                            "prompt": self._prompt(),
                         },
                         "turn_detection": {
                             "type": "server_vad",
@@ -71,8 +90,6 @@ class Transcriber:
                 },
             },
         }))
-        self._reader = asyncio.create_task(self._read_loop())
-        log.info("transcriber started: %s", self.speaker)
 
     async def send(self, pcm_8k: bytes) -> None:
         """電話帯域のPCMを投入する。一定量たまったらまとめて送信する。"""
@@ -109,6 +126,14 @@ class Transcriber:
                 out = self._translate(ev)
                 if out:
                     await self._on_event(out)
+                # 確定テキストを文脈に積み、次の区間の精度を上げる
+                if out and out.get("type") == "transcript" and out.get("final"):
+                    text = (out.get("text") or "").strip()
+                    if text:
+                        self._recent.append(text)
+                        del self._recent[:-TRANSCRIBE_CONTEXT_TURNS]
+                        with contextlib.suppress(Exception):
+                            await self._send_session_update()
         except websockets.ConnectionClosed:
             log.info("realtime connection closed: %s", self.speaker)
         except Exception:

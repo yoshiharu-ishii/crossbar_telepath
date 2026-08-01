@@ -59,6 +59,14 @@ TRANSCRIBE_LANGUAGE = os.getenv("TRANSCRIBE_LANGUAGE", "ja")
 VAD_SILENCE_MS = int(os.getenv("VAD_SILENCE_MS", "500"))
 # 音声をこのミリ秒ぶん貯めてから送る(WSメッセージを細かく刻みすぎない)
 AUDIO_FLUSH_MS = int(os.getenv("AUDIO_FLUSH_MS", "100"))
+# 文字起こしに渡す文脈。VADで切られた短い区間は単独だと精度が落ちるため、
+# 直近の確定テキストを prompt として回す(2026-08-01の実測で「もしもし」が
+# 「持望/本物/僕も」と誤認される問題が解消)。
+# **シナリオを書いてはいけない** — promptの内容をそのまま口述する幻聴を誘う
+TRANSCRIBE_PROMPT = os.getenv(
+    "TRANSCRIBE_PROMPT", "電話品質(8kHz)の日本語通話の書き起こし。「もしもし」などの呼びかけや相槌、短い発話が多い。"
+)
+TRANSCRIBE_CONTEXT_TURNS = int(os.getenv("TRANSCRIBE_CONTEXT_TURNS", "4"))
 
 # ---- 感情判定(PH3) --------------------------------------------------
 ANGER_MODEL = os.getenv("ANGER_MODEL", "gpt-4o-mini")

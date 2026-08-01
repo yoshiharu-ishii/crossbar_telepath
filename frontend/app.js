@@ -204,7 +204,7 @@ function addBubble(msg) {
   row.className = `row ${msg.speaker}`;
   row.innerHTML =
     `<div class="bubble pending"><div class="who"></div><div class="text"></div>` +
-    `<div class="anger-tag"></div><div class="time"></div></div>`;
+    `<div class="anger-tag"></div><div class="seg"></div><div class="time"></div></div>`;
   row.querySelector(".who").textContent = WHO[msg.speaker] || msg.speaker;
   row.querySelector(".time").textContent = clock(msg.ts);
   feedEl.appendChild(row);
@@ -219,6 +219,7 @@ function applyTranscript(msg) {
   if (msg.final) {
     text.textContent = msg.text || text.textContent;
     el.classList.remove("pending");
+    addPlayButton(el, msg);
     // 保存済みの記録には判定結果が乗っている
     if (msg.anger_score != null) {
       applyAnger({ item_id: msg.item_id, score: msg.anger_score, reason: msg.anger_reason });
@@ -227,6 +228,33 @@ function applyTranscript(msg) {
     text.textContent += msg.delta || "";
   }
   feedEl.scrollTop = feedEl.scrollHeight;
+}
+
+// 発話区間だけを再生する。文字起こしが合っているか耳で確かめるため
+let segAudio = null;
+function playSegment(contactId, startMs, endMs, btn) {
+  if (segAudio) { segAudio.pause(); document.querySelectorAll(".play-seg.playing").forEach(b => b.classList.remove("playing")); }
+  const q = new URLSearchParams({ start_ms: Math.round(startMs), end_ms: Math.round(endMs) });
+  segAudio = new Audio(`/api/recordings/${contactId}.wav?${q}`);
+  btn.classList.add("playing");
+  segAudio.onended = () => btn.classList.remove("playing");
+  segAudio.onerror = () => btn.classList.remove("playing");
+  segAudio.play().catch(() => btn.classList.remove("playing"));
+}
+
+// 発話に再生ボタンを付ける。録音があり、音声内の位置が分かるときだけ
+function addPlayButton(el, msg) {
+  if (msg.audio_start_ms == null) return;
+  const call = calls.get(msg.contact_id || selectedId);
+  if (!call?.has_recording) return;
+  const slot = el.querySelector(".seg");
+  if (!slot || slot.querySelector("button")) return;
+  const b = document.createElement("button");
+  b.className = "play-seg";
+  const dur = ((msg.audio_end_ms - msg.audio_start_ms) / 1000).toFixed(1);
+  b.textContent = `▶ この発話を聞く (${dur}秒)`;
+  b.onclick = () => playSegment(call.contact_id, msg.audio_start_ms, msg.audio_end_ms, b);
+  slot.appendChild(b);
 }
 
 function setGauge(score) {

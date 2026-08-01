@@ -44,7 +44,9 @@ class Resampler:
         return np.rint(out).astype("<i2").tobytes()
 
 
-def mkv_to_stereo_wav(mkv_bytes: bytes) -> bytes:
+def mkv_to_stereo_wav(
+    mkv_bytes: bytes, start_ms: int | None = None, end_ms: int | None = None
+) -> bytes:
     """録音MKVを、左=相手(FROM_CUSTOMER)/右=こちら(TO_CUSTOMER)のステレオWAVにする。
 
     左右に振ることで、聴くだけで話者分離の状態が分かる。
@@ -73,6 +75,14 @@ def mkv_to_stereo_wav(mkv_bytes: bytes) -> bytes:
     stereo = np.empty(n * 2, dtype="<i2")
     stereo[0::2] = left
     stereo[1::2] = right
+
+    # 発話区間だけを切り出す(前後に少し余白を付けて頭切れを防ぐ)
+    if start_ms is not None or end_ms is not None:
+        pad = int(SOURCE_RATE * 0.3)
+        i0 = max(0, int(SOURCE_RATE * (start_ms or 0) / 1000) - pad)
+        i1 = n if end_ms is None else min(n, int(SOURCE_RATE * end_ms / 1000) + pad)
+        if i1 > i0:
+            stereo = stereo.reshape(-1, 2)[i0:i1].reshape(-1)
 
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:

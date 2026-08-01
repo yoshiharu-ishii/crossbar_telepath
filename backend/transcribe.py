@@ -49,6 +49,8 @@ class Transcriber:
         self._reader: asyncio.Task | None = None
         # 直近の確定テキスト。短い区間に文脈を与えるため prompt として回す
         self._recent: list[str] = []
+        # item_id → 音声内の発話区間(ms)。録音の該当箇所を頭出しするために使う
+        self._spans: dict[str, dict] = {}
 
     async def start(self) -> None:
         key = get_api_key()
@@ -151,14 +153,25 @@ class Transcriber:
                 "final": False,
             }
         if kind == "conversation.item.input_audio_transcription.completed":
+            item = ev.get("item_id")
             return {
                 "type": "transcript",
                 "speaker": self.speaker,
-                "item_id": ev.get("item_id"),
+                "item_id": item,
                 "text": ev.get("transcript", ""),
                 "final": True,
+                # 録音のどこを喋っているか。頭出し再生に使う
+                **self._spans.pop(item, {}),
             }
         if kind in ("input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped"):
+            # VADが返す音声内の位置を控えておく。確定時に発話へ添える
+            item = ev.get("item_id")
+            if item:
+                span = self._spans.setdefault(item, {})
+                if kind.endswith("started"):
+                    span["audio_start_ms"] = ev.get("audio_start_ms")
+                else:
+                    span["audio_end_ms"] = ev.get("audio_end_ms")
             return {
                 "type": "speech",
                 "speaker": self.speaker,

@@ -229,8 +229,13 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
 
 
 @app.get("/api/recordings/{contact_id}.wav")
-def api_recording_wav(contact_id: str) -> Response:
-    """録音を左=相手/右=こちらのステレオWAVで返す(ブラウザ再生用)。"""
+def api_recording_wav(
+    contact_id: str, start_ms: int | None = None, end_ms: int | None = None
+) -> Response:
+    """録音を左=相手/右=こちらのステレオWAVで返す(ブラウザ再生用)。
+
+    start_ms/end_ms を渡すとその区間だけを切り出す。発話ごとの頭出し再生に使う。
+    """
     try:
         data = storage.get_recording(contact_id)
     except ValueError:
@@ -238,7 +243,7 @@ def api_recording_wav(contact_id: str) -> Response:
     if data is None:
         raise HTTPException(404, "この呼の録音がありません")
     try:
-        wav = audio.mkv_to_stereo_wav(data)
+        wav = audio.mkv_to_stereo_wav(data, start_ms, end_ms)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return Response(wav, media_type="audio/wav")

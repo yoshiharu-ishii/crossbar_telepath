@@ -189,7 +189,7 @@ VADで切られた区間は単独だと精度が大きく落ちる。**直近の
 |---|---|
 | `call_started` | `contact_id`、`customer_number`、`instance_arn`、`label`、`started_at` |
 | `call_ended` | 同上 + `ended_at` |
-| `transcript` | `speaker`(customer/agent)、`item_id`、`delta` または `text`、`final` |
+| `transcript` | `speaker`(customer/agent)、`item_id`、`delta` または `text`、`final`、`audio_start_ms`/`audio_end_ms`(録音内の位置) |
 | `speech` | 発話区間の開始・終了 |
 | `emotion` | `speaker`、`item_id`、`score`(0-100)、`reason`(状況の読み)、`window`、`alert` |
 | `error` | Realtime API側のエラー |
@@ -218,6 +218,10 @@ flowchart LR
 (相手から見て「AIにいなされている」と感じさせないため)。
 
 判定対象は**相手の発話のみ**。オペレータ側の発話は文脈として読むだけで評価しない。
+
+**判定材料は文字起こしされたテキストだけで、音声のトーンは見ていない。** つまり
+文字起こしが崩れると判定も道連れになる。声を荒げずに丁寧語のまま刺してくる怒りは
+テキストからは読み取りにくく、そこを取るには音声判定が要る(設定の器だけ用意してある)。
 
 ### コスト設計
 
@@ -249,6 +253,22 @@ flowchart LR
 
 **履歴の呼を見ている間は、新しい呼が来ても画面を奪われない。** 過去の呼を調査中に
 着信で画面が飛ぶ事故を防ぐため。「リアルタイム」をクリックしたときだけ追従モードに戻る。
+
+### 発話の頭出し再生
+
+Realtime APIのVADイベントは `audio_start_ms` / `audio_end_ms` を `item_id` 付きで返す。
+これを発話に添えて保存しておくと、**録音の該当箇所だけを切り出して再生**できる。
+
+```mermaid
+flowchart LR
+    V["speech_started / stopped<br/>audio_start_ms / audio_end_ms"] --> U["発話に位置を添えて保存"]
+    U --> B["UIの「この発話を聞く」"]
+    B --> API["GET /api/recordings/&lt;id&gt;.wav<br/>?start_ms=&end_ms="]
+    API --> C["原本から切り出して返す<br/>(前後0.3秒の余白付き)"]
+```
+
+文字起こしが合っているかを**耳で確かめられる**ようにするための機能。電話帯域の音声は
+誤認が避けられないので、テキストだけを見て精度を議論できる状態にしておく必要がある。
 
 ## 9. リプレイと再文字起こし(原本と派生)
 

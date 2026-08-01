@@ -95,6 +95,14 @@
     .row.customer .bubble.a2 { background: #43261a; border-color: #8a4a2c; }
     .row.customer .bubble.a3 { background: #4d201c; border-color: #a3392f; }
   }
+  /* 発話ごとの頭出し再生 */
+  .play-seg {
+    font: inherit; font-size: 11px; padding: 1px 8px; margin-top: 4px;
+    border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); cursor: pointer; line-height: 1.6;
+  }
+  .play-seg:hover { border-color: var(--accent); color: var(--accent); }
+  .play-seg.playing { border-color: var(--accent); color: var(--accent); }
   .anger-tag {
     font-size: 11px; font-family: ui-monospace, monospace;
     color: var(--muted); margin-top: 2px;

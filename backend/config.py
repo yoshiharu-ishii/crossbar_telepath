@@ -47,6 +47,10 @@ CONNECT_INSTANCE_ID = os.getenv("CONNECT_INSTANCE_ID", "")
 REALTIME_URL = os.getenv(
     "REALTIME_URL", "wss://api.openai.com/v1/realtime?intent=transcription"
 )
+# 感情判定(テキスト)に使うチャット補完エンドポイント
+CHAT_COMPLETIONS_URL = os.getenv(
+    "CHAT_COMPLETIONS_URL", "https://api.openai.com/v1/chat/completions"
+)
 
 # ---- 文字起こし -------------------------------------------------------
 TRANSCRIBE_MODEL = os.getenv("TRANSCRIBE_MODEL", "gpt-4o-transcribe")

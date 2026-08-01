@@ -64,7 +64,7 @@ AUDIO_FLUSH_MS = int(os.getenv("AUDIO_FLUSH_MS", "100"))
 # 「持望/本物/僕も」と誤認される問題が解消)。
 # **シナリオを書いてはいけない** — promptの内容をそのまま口述する幻聴を誘う
 TRANSCRIBE_PROMPT = os.getenv(
-    "TRANSCRIBE_PROMPT", "電話品質(8kHz)の日本語通話の書き起こし。「もしもし」などの呼びかけや相槌、短い発話が多い。"
+    "TRANSCRIBE_PROMPT", "カスタマーハラスメント対応の通話記録。電話品質(8kHz)の日本語。「もしもし」などの呼びかけや相槌、短い発話が多い。罵倒・脅し・暴言もそのまま含まれるので、伏字や言い換えをせず聞こえたとおりに書き起こす。"
 )
 TRANSCRIBE_CONTEXT_TURNS = int(os.getenv("TRANSCRIBE_CONTEXT_TURNS", "4"))
 

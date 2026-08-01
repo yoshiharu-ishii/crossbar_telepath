@@ -154,7 +154,49 @@ aws connect search-contacts --instance-id <ID> \
 実験コストの支配項は国際発信料なので、長時間の試行はリプレイで代替する。
 1本録っておけば恒久的なテストデータになる。
 
-## 9. 開発時の注意
+## 9. 踏んだ罠
+
+### MinIOの資格情報を `AWS_ACCESS_KEY_ID` に置いてはいけない
+
+boto3の `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` は**全クライアントに効く**。
+MinIO用のつもりで環境変数に置くと、SQSやKVSまでその鍵で実AWSに認証しようとして
+`InvalidClientTokenId` で落ちる。
+
+MinIOの資格情報は **`S3_ACCESS_KEY` / `S3_SECRET_KEY`** に置き、S3クライアントにだけ
+明示的に渡すこと(`storage.py` がそうしている)。
+
+2026-08-01にこれで実架電が丸ごと拾えない事故が起きた。症状は「画面が反応しない」だが、
+Connectにも Lambda にも SQS にも呼は届いており、**消費サービスだけが認証に失敗して
+黙って死んでいた**。
+
+### 監視タスクが死んでいないか確かめる
+
+`GET /api/health` の `watching` は**実際に監視タスクが生きているか**を返す
+(設定値は `watch_configured`)。呼が拾えないときはまずここを見る。
+
+```bash
+curl -s localhost:8000/api/health
+# {"watching": true, "watch_configured": true, ...}  ← 両方trueなら正常
+```
+
+`watching: false, watch_configured: true` なら監視タスクが死んでいる。
+サーバーのログに「シグナリング監視が停止した」が出ているはず。
+
+### 切り分けの順序
+
+呼が画面に出ないときは、上流から順に見る。
+
+```mermaid
+flowchart LR
+    A["Connectに呼が届いたか<br/>search-contacts"] --> B["Lambdaが発火したか<br/>CloudWatch Logs"]
+    B --> C["SQSに滞留していないか<br/>get-queue-attributes"]
+    C --> D["監視タスクが生きているか<br/>/api/health"]
+```
+
+SQSに滞留があるのに画面に出ない場合、**呼は失われていない**。原因を直して
+サーバーを起動し直せば、キューに残った呼はそのまま処理される(保持24時間)。
+
+## 10. 開発時の注意
 
 - **ユーザーのサーバーはポート8000、Claudeの検証は8001**(終わったら止める)
 - 静的ファイルは `Cache-Control: no-cache` を返している。更新後のHTMLと古い `app.js` の

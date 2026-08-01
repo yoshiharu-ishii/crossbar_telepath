@@ -79,6 +79,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 # MinIO利用時のみ設定。空なら本物のS3を見る(認証はIAMロール)
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "")
 S3_BUCKET = os.getenv("S3_BUCKET", "")
+# MinIOの資格情報。**AWS_ACCESS_KEY_ID等を使ってはいけない**——あれはboto3の
+# 全クライアントに効いてしまい、SQSやKVSが実AWSではなくMinIOの鍵で認証を試みて
+# InvalidClientTokenIdで落ちる(2026-08-01にシグナリング監視が死ぬ事故として発生)
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "")
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
 
 # ---- 開発用 -----------------------------------------------------------
 # リプレイの流速。実測(323KB / 9.7秒)に合わせた既定値

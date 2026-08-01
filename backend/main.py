@@ -38,15 +38,27 @@ log = logging.getLogger("main")
 
 # 呼ごとのタスク。同時に複数の呼が来ても取り違えない
 _sessions: dict[str, asyncio.Task] = {}
+# シグナリング監視タスク。health で生死を見るためモジュール変数に置く
+_watcher: asyncio.Task | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     history.init()
     log.info("呼の記録: %s / 録音: %s", history.backend(), "s3" if storage.enabled() else "files")
+    global _watcher
     watcher = None
     if WATCH_CALLS:
-        watcher = asyncio.create_task(_watch_signaling())
+        watcher = _watcher = asyncio.create_task(_watch_signaling())
+
+        def _watcher_died(task: asyncio.Task) -> None:
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc:
+                log.error("シグナリング監視が停止した。以降の呼は拾えない", exc_info=exc)
+
+        watcher.add_done_callback(_watcher_died)
     else:
         log.info("WATCH_CALLS=0 のためシグナリング監視はしない(リプレイのみ)")
     yield
@@ -95,7 +107,10 @@ def _start_session(session: CallSession, source) -> None:
 
 
 async def _watch_signaling() -> None:
-    """コールフローからの呼設定を受け取り、呼ごとに受信を始める。"""
+    """コールフローからの呼設定を受け取り、呼ごとに受信を始める。
+
+    このタスクが死ぬと呼を一切拾わなくなるので、終了は必ずログに残す。
+    """
     log.info("シグナリング監視を開始")
     async for ev in signaling.poll_call_events():
         if not ev.stream_arn:
@@ -253,7 +268,9 @@ def api_streams() -> list[dict]:
 def api_health() -> dict:
     return {
         "status": "ok",
-        "watching": WATCH_CALLS,
+        # 設定値ではなく実際に監視タスクが生きているかを返す
+        "watching": bool(_watcher and not _watcher.done()),
+        "watch_configured": WATCH_CALLS,
         "active_calls": len(_sessions),
         "history_backend": history.backend(),
         "recording_backend": "s3" if storage.enabled() else "files",

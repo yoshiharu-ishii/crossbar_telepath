@@ -47,7 +47,22 @@ class CallEvent(dict):
 async def poll_call_events() -> AsyncIterator[CallEvent]:
     """SQSをロングポーリングし、届いた呼イベントを順に返す。"""
     sqs = boto3.client("sqs", region_name=AWS_REGION)
-    url = (await asyncio.to_thread(sqs.get_queue_url, QueueName=CALL_EVENTS_QUEUE))["QueueUrl"]
+
+    # キューURLの解決も再試行の輪に入れる。ここを起動時の一度きりにすると、
+    # 認証やキュー未作成で失敗したとき監視タスクごと黙って死ぬ
+    # (2026-08-01、MinIOの資格情報が実AWSまで効いていて呼を取りこぼす事故)
+    url = None
+    while url is None:
+        try:
+            url = (await asyncio.to_thread(sqs.get_queue_url, QueueName=CALL_EVENTS_QUEUE))[
+                "QueueUrl"
+            ]
+        except Exception as e:
+            log.error(
+                "シグナリング用キュー '%s' に接続できない: %s — 15秒後に再試行",
+                CALL_EVENTS_QUEUE, e,
+            )
+            await asyncio.sleep(15)
     log.info("signaling queue: %s", url)
 
     while True:

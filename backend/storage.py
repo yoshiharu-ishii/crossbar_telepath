@@ -18,7 +18,14 @@ from pathlib import Path
 import boto3
 from botocore.exceptions import ClientError
 
-from config import AWS_REGION, CALLS_DIR, S3_BUCKET, S3_ENDPOINT_URL
+from config import (
+    AWS_REGION,
+    CALLS_DIR,
+    S3_ACCESS_KEY,
+    S3_BUCKET,
+    S3_ENDPOINT_URL,
+    S3_SECRET_KEY,
+)
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +55,18 @@ def enabled() -> bool:
 
 @lru_cache(maxsize=1)
 def _client():
-    # endpoint_url が空なら本物のS3を見る(認証はIAMロール)
-    return boto3.client("s3", region_name=AWS_REGION, endpoint_url=S3_ENDPOINT_URL or None)
+    """S3互換クライアント。
+
+    MinIOの資格情報は**このクライアントにだけ**渡す。環境変数の
+    AWS_ACCESS_KEY_ID等に置くと、SQSやKVSまで同じ鍵で認証しようとして壊れる。
+    endpoint_url が空なら本物のS3を見る(認証はIAMロール)。
+    """
+    creds = {}
+    if S3_ACCESS_KEY and S3_SECRET_KEY:
+        creds = {"aws_access_key_id": S3_ACCESS_KEY, "aws_secret_access_key": S3_SECRET_KEY}
+    return boto3.client(
+        "s3", region_name=AWS_REGION, endpoint_url=S3_ENDPOINT_URL or None, **creds
+    )
 
 
 def put_recording(contact_id: str, data: bytes) -> None:

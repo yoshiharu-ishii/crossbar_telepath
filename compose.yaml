@@ -19,8 +19,9 @@ services:
       # 録音の置き場。本番ではこの2つを外し、S3+IAMロールに任せる
       S3_ENDPOINT_URL: "http://minio:9000"
       S3_BUCKET: "${S3_BUCKET:-crossbar-telepath-recordings}"
-      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-crossbar}"
-      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-crossbar-dev-secret}"
+      # MinIO専用。AWS_ACCESS_KEY_ID にすると SQS/KVS も同じ鍵で認証しに行き壊れる
+      S3_ACCESS_KEY: "${MINIO_ROOT_USER:-crossbar}"
+      S3_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-crossbar-dev-secret}"
       # 呼の記録の置き場。空にするとファイル(recordings/calls/*.json)で動く
       DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-crossbar}:${POSTGRES_PASSWORD:-crossbar-dev-secret}@db:5432/${POSTGRES_DB:-crossbar}"
     volumes:

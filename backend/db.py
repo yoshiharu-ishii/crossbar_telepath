@@ -68,6 +68,9 @@ utterances = Table(
     Column("item_id", String(64)),
     Column("text", Text),
     Column("ts", DateTime(timezone=True), nullable=False),
+    # 録音内での発話区間(ミリ秒)。頭出し再生に使う
+    Column("audio_start_ms", Integer),
+    Column("audio_end_ms", Integer),
     # PH3で埋める
     Column("anger_score", Integer),
     Column("anger_reason", Text),
@@ -134,6 +137,8 @@ def save_record(record: dict) -> None:
                 "item_id": m.get("item_id"),
                 "text": m.get("text"),
                 "ts": _to_dt(m.get("ts")) or datetime.now(UTC),
+                "audio_start_ms": m.get("audio_start_ms"),
+                "audio_end_ms": m.get("audio_end_ms"),
                 "anger_score": m.get("anger_score"),
                 "anger_reason": m.get("anger_reason"),
             }
@@ -153,6 +158,9 @@ def _message_dict(row) -> dict:
         "final": True,
         "ts": _to_epoch(row.ts),
     }
+    if row.audio_start_ms is not None:
+        msg["audio_start_ms"] = row.audio_start_ms
+        msg["audio_end_ms"] = row.audio_end_ms
     if row.anger_score is not None:
         msg["anger_score"] = row.anger_score
         msg["anger_reason"] = row.anger_reason

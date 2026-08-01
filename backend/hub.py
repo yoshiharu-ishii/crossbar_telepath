@@ -25,6 +25,7 @@ from pathlib import Path
 
 from fastapi import WebSocket
 
+import emotion
 import history
 import storage
 from config import MAX_RECENT_CALLS, SPEAKER_BY_TRACK_NAME
@@ -49,6 +50,12 @@ class CallRecord:
     # (現在時刻で上書きすると通話時間が何日にも化ける)
     fixed_ended_at: float | None = None
 
+    @property
+    def max_anger(self) -> int | None:
+        """この呼で最も高かった怒り度。履歴から「揉めた通話」を探すための値。"""
+        scores = [m["anger_score"] for m in self.messages if m.get("anger_score") is not None]
+        return max(scores) if scores else None
+
     def meta(self) -> dict:
         return {
             "contact_id": self.contact_id,
@@ -58,6 +65,7 @@ class CallRecord:
             "started_at": self.started_at,
             "ended_at": self.ended_at,
             "message_count": len(self.messages),
+            "max_anger": self.max_anger,
             "has_recording": storage.has_recording(self.contact_id),
             "live": self.ended_at is None,
         }
@@ -157,6 +165,9 @@ class CallSession:
         )
         self._parser = MkvStreamParser()
         self._transcribers: dict[str, Transcriber] = {}
+        # _emit を渡す。contact_id はそこで必ず添えられる
+        self._anger = emotion.AngerWatcher(contact_id, self._emit)
+        self._judging: set[asyncio.Task] = set()
 
     async def run(self, source: AsyncIterator[bytes]) -> None:
         await self.hub.call_started(self.record)
@@ -192,12 +203,22 @@ class CallSession:
                 finally:
                     tmp_path.unlink(missing_ok=True)
             await self._close_all()
+            # 判定の結果を取りこぼさずに記録へ残す
+            if self._judging:
+                await asyncio.gather(*self._judging, return_exceptions=True)
             await self.hub.call_ended(self.contact_id, persist=self.save_transcript)
             log.info("call ended: %s", self.contact_id)
 
     async def _emit(self, msg: dict) -> None:
         msg["contact_id"] = self.contact_id
         await self.hub.broadcast(msg)
+        # 文字起こしの流れを止めないよう、判定は別タスクで走らせる
+        if msg.get("type") == "transcript" and self._anger.should_judge(msg):
+            task = asyncio.create_task(
+                self._anger.run(self.record.messages, msg)
+            )
+            self._judging.add(task)
+            task.add_done_callback(self._judging.discard)
 
     async def _dispatch(self, block) -> None:
         track_name = self._parser.track_names.get(block.track)

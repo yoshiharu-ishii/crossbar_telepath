@@ -85,6 +85,45 @@
   @keyframes blink { 50% { opacity: 0; } }
   .time { font-size: 11px; color: var(--muted); margin-top: 2px; font-family: ui-monospace, monospace; }
   .quiet { font-size: 13px; color: var(--muted); text-align: center; padding: 32px 0; }
+
+  /* 怒りの度合い。落ち着き→苛立ち→明確な怒り */
+  .row.customer .bubble.a1 { background: #fff6e5; border-color: #f0c274; }
+  .row.customer .bubble.a2 { background: #ffe9e0; border-color: #ef9a72; }
+  .row.customer .bubble.a3 { background: #ffdcd6; border-color: #e2564a; }
+  @media (prefers-color-scheme: dark) {
+    .row.customer .bubble.a1 { background: #3a3018; border-color: #7a6128; }
+    .row.customer .bubble.a2 { background: #43261a; border-color: #8a4a2c; }
+    .row.customer .bubble.a3 { background: #4d201c; border-color: #a3392f; }
+  }
+  /* 発話ごとの頭出し再生 */
+  .play-seg {
+    font: inherit; font-size: 11px; padding: 1px 8px; margin-top: 4px;
+    border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); cursor: pointer; line-height: 1.6;
+  }
+  .play-seg:hover { border-color: var(--accent); color: var(--accent); }
+  .play-seg.playing { border-color: var(--accent); color: var(--accent); }
+  .seg-hint { font-size: 11px; color: var(--muted); opacity: .8; }
+  .anger-tag {
+    font-size: 11px; font-family: ui-monospace, monospace;
+    color: var(--muted); margin-top: 2px;
+  }
+  /* ヘッダの怒りゲージ */
+  #gauge-wrap { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  #gauge { width: 120px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  #gauge-bar { height: 100%; width: 0; background: var(--live); transition: width .4s, background .4s; }
+  /* 閾値を超えたときの警告帯 */
+  #alert {
+    display: none; padding: 10px 20px; background: #b3261e; color: #fff;
+    font-size: 14px; line-height: 1.5;
+  }
+  #alert.on { display: block; }
+  #alert .reason { font-size: 13px; opacity: .92; margin-top: 2px; }
+  /* 履歴の怒りバッジ */
+  .badge-anger {
+    font-size: 10px; padding: 1px 6px; border-radius: 999px; margin-left: 6px;
+    background: var(--customer-bg); color: var(--customer); border: 1px solid var(--customer);
+  }
 </style>
 </head>
 <body>
@@ -105,6 +144,7 @@
   </aside>
   <main>
     <div id="call-head"><span class="quiet" style="padding:0">呼を選択してください</span></div>
+    <div id="alert"><strong id="alert-title"></strong><div class="reason" id="alert-reason"></div></div>
     <div id="feed"><div class="quiet">左の履歴から呼を選ぶと、ここに文字起こしが出ます。</div></div>
   </main>
 </div>

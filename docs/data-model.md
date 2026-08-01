@@ -46,7 +46,7 @@ erDiagram
         text instance_arn "どのConnectインスタンスの呼か"
         timestamptz started_at "索引あり"
         timestamptz ended_at
-        int max_anger "PH3で埋める"
+        int max_anger "その呼の最大怒り度"
         text summary "PH3: 通話カード"
     }
     utterances {
@@ -56,8 +56,8 @@ erDiagram
         varchar item_id "Realtime APIの発話ID"
         text text
         timestamptz ts
-        int anger_score "PH3で埋める"
-        text anger_reason "PH3: 状況の読み"
+        int anger_score "判定時点の怒り度0-100"
+        text anger_reason "状況の読み(一行)"
     }
 ```
 

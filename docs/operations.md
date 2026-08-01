@@ -82,7 +82,27 @@ curl -X POST 'http://localhost:8000/api/reprocess/<contact_id>?speed=2.0'
 
 リプレイは同時1本まで(連打でセッションが積み上がらないようにするため)。実通話は無制限。
 
-## 5. AWS環境を建てる / 壊す
+## 5. 台本から通話を合成する(架電せずに検証)
+
+怒り判定の検証には怒った通話が要るが、一人で本気の怒りは作れないし、実架電は
+国際通話料もかかる。**TTSで音声を作り、KVSがよこすのと同じ形式のMKVに詰める**ことで、
+リプレイ経路に流すだけで実架電と同じパイプラインを通せる。
+
+```bash
+OPENAI_API_KEY=... uv run --with httpx --with numpy \
+    python ../tools/make_test_call.py --out ../recordings/angry_call.mkv
+```
+
+台本は `tools/make_test_call.py` の `SCRIPT` にある(話者・台詞・TTSへの口調指示)。
+出力は `recordings/` に置かれ、UIの「録音ファイル」からクリックで再生できる。
+
+合成にあたっては**実機と同じ条件に寄せている**。8kHz / 16bit / mono の生L16、
+話者別2トラック、CodecIDは実機と同じく `A_AAC` を詐称。TTSの24kHzは電話帯域に
+落としてから使う(綺麗すぎる音では実際の聞き取り困難が再現できないため)。
+
+これにより、判定ロジックを何度直しても**同じ素材で比較**できる。
+
+## 6. AWS環境を建てる / 壊す
 
 ```bash
 cd infra
@@ -102,7 +122,7 @@ aws kinesisvideo delete-stream --stream-arn <ARN>
 
 再applyすると**電話番号は変わる**(解放済みのため)。
 
-## 6. 実架電での確認
+## 7. 実架電での確認
 
 ```bash
 WATCH_CALLS=1 uv run --directory backend uvicorn main:app --port 8000
@@ -119,7 +139,7 @@ WATCH_CALLS=1 uv run --directory backend uvicorn main:app --port 8000
 SQSにメッセージが残っていないか → アプリのログ(`GetMedia connected` が出ているか)の順。
 `GET /api/streams` でKVS側のストリーム一覧も見られる。
 
-## 7. 取り逃した呼の救出
+## 8. 取り逃した呼の救出
 
 **保持期限(24時間)内なら、記録し損ねた呼も復元できる。**
 
@@ -140,7 +160,7 @@ aws connect search-contacts --instance-id <ID> \
 いる間に来た呼は起動時に自動で処理される**。手動救出が要るのは「イベントは消費したが
 保存に失敗した」場合だけ。
 
-## 8. コスト
+## 9. コスト
 
 | 項目 | 目安 |
 |---|---|
@@ -154,7 +174,60 @@ aws connect search-contacts --instance-id <ID> \
 実験コストの支配項は国際発信料なので、長時間の試行はリプレイで代替する。
 1本録っておけば恒久的なテストデータになる。
 
-## 9. 開発時の注意
+## 10. 踏んだ罠
+
+### 怒り判定のデバウンスで発話を「捨てて」はいけない
+
+判定中や間隔内に来た発話をスキップする実装にしていたところ、合成した怒り通話で
+台本の一番きつい部分(「謝れば済むと思ってんのか」以降)が丸ごと無判定になった。
+
+**発話が立て込む場面=怒りが高まっている場面**であり、素朴なデバウンスは
+検知したい瞬間を狙い撃ちで落とす。捨てるのではなく**最新の1件に畳み込む**
+(`AngerWatcher._pending`)。間隔は守るが、直近の状態は必ず判定に載る。
+
+合成通話を流さなければ、これは実架電で怒鳴られたときに初めて分かる類のバグだった。
+
+### MinIOの資格情報を `AWS_ACCESS_KEY_ID` に置いてはいけない
+
+boto3の `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` は**全クライアントに効く**。
+MinIO用のつもりで環境変数に置くと、SQSやKVSまでその鍵で実AWSに認証しようとして
+`InvalidClientTokenId` で落ちる。
+
+MinIOの資格情報は **`S3_ACCESS_KEY` / `S3_SECRET_KEY`** に置き、S3クライアントにだけ
+明示的に渡すこと(`storage.py` がそうしている)。
+
+2026-08-01にこれで実架電が丸ごと拾えない事故が起きた。症状は「画面が反応しない」だが、
+Connectにも Lambda にも SQS にも呼は届いており、**消費サービスだけが認証に失敗して
+黙って死んでいた**。
+
+### 監視タスクが死んでいないか確かめる
+
+`GET /api/health` の `watching` は**実際に監視タスクが生きているか**を返す
+(設定値は `watch_configured`)。呼が拾えないときはまずここを見る。
+
+```bash
+curl -s localhost:8000/api/health
+# {"watching": true, "watch_configured": true, ...}  ← 両方trueなら正常
+```
+
+`watching: false, watch_configured: true` なら監視タスクが死んでいる。
+サーバーのログに「シグナリング監視が停止した」が出ているはず。
+
+### 切り分けの順序
+
+呼が画面に出ないときは、上流から順に見る。
+
+```mermaid
+flowchart LR
+    A["Connectに呼が届いたか<br/>search-contacts"] --> B["Lambdaが発火したか<br/>CloudWatch Logs"]
+    B --> C["SQSに滞留していないか<br/>get-queue-attributes"]
+    C --> D["監視タスクが生きているか<br/>/api/health"]
+```
+
+SQSに滞留があるのに画面に出ない場合、**呼は失われていない**。原因を直して
+サーバーを起動し直せば、キューに残った呼はそのまま処理される(保持24時間)。
+
+## 11. 開発時の注意
 
 - **ユーザーのサーバーはポート8000、Claudeの検証は8001**(終わったら止める)
 - 静的ファイルは `Cache-Control: no-cache` を返している。更新後のHTMLと古い `app.js` の

@@ -47,6 +47,10 @@ CONNECT_INSTANCE_ID = os.getenv("CONNECT_INSTANCE_ID", "")
 REALTIME_URL = os.getenv(
     "REALTIME_URL", "wss://api.openai.com/v1/realtime?intent=transcription"
 )
+# 感情判定(テキスト)に使うチャット補完エンドポイント
+CHAT_COMPLETIONS_URL = os.getenv(
+    "CHAT_COMPLETIONS_URL", "https://api.openai.com/v1/chat/completions"
+)
 
 # ---- 文字起こし -------------------------------------------------------
 TRANSCRIBE_MODEL = os.getenv("TRANSCRIBE_MODEL", "gpt-4o-transcribe")
@@ -55,6 +59,14 @@ TRANSCRIBE_LANGUAGE = os.getenv("TRANSCRIBE_LANGUAGE", "ja")
 VAD_SILENCE_MS = int(os.getenv("VAD_SILENCE_MS", "500"))
 # 音声をこのミリ秒ぶん貯めてから送る(WSメッセージを細かく刻みすぎない)
 AUDIO_FLUSH_MS = int(os.getenv("AUDIO_FLUSH_MS", "100"))
+# 文字起こしに渡す文脈。VADで切られた短い区間は単独だと精度が落ちるため、
+# 直近の確定テキストを prompt として回す(2026-08-01の実測で「もしもし」が
+# 「持望/本物/僕も」と誤認される問題が解消)。
+# **シナリオを書いてはいけない** — promptの内容をそのまま口述する幻聴を誘う
+TRANSCRIBE_PROMPT = os.getenv(
+    "TRANSCRIBE_PROMPT", "カスタマーハラスメント対応の通話記録。電話品質(8kHz)の日本語。「もしもし」などの呼びかけや相槌、短い発話が多い。罵倒・脅し・暴言もそのまま含まれるので、伏字や言い換えをせず聞こえたとおりに書き起こす。"
+)
+TRANSCRIBE_CONTEXT_TURNS = int(os.getenv("TRANSCRIBE_CONTEXT_TURNS", "4"))
 
 # ---- 感情判定(PH3) --------------------------------------------------
 ANGER_MODEL = os.getenv("ANGER_MODEL", "gpt-4o-mini")
@@ -75,6 +87,11 @@ DATABASE_URL = os.getenv("DATABASE_URL", "")
 # MinIO利用時のみ設定。空なら本物のS3を見る(認証はIAMロール)
 S3_ENDPOINT_URL = os.getenv("S3_ENDPOINT_URL", "")
 S3_BUCKET = os.getenv("S3_BUCKET", "")
+# MinIOの資格情報。**AWS_ACCESS_KEY_ID等を使ってはいけない**——あれはboto3の
+# 全クライアントに効いてしまい、SQSやKVSが実AWSではなくMinIOの鍵で認証を試みて
+# InvalidClientTokenIdで落ちる(2026-08-01にシグナリング監視が死ぬ事故として発生)
+S3_ACCESS_KEY = os.getenv("S3_ACCESS_KEY", "")
+S3_SECRET_KEY = os.getenv("S3_SECRET_KEY", "")
 
 # ---- 開発用 -----------------------------------------------------------
 # リプレイの流速。実測(323KB / 9.7秒)に合わせた既定値

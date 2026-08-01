@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -19,6 +20,8 @@ from audio import Resampler
 from config import (
     AUDIO_FLUSH_MS,
     REALTIME_URL,
+    TRANSCRIBE_CONTEXT_TURNS,
+    TRANSCRIBE_PROMPT,
     SAMPLE_WIDTH,
     SOURCE_RATE,
     TARGET_RATE,
@@ -44,6 +47,10 @@ class Transcriber:
         self._pending = bytearray()
         self._ws: websockets.ClientConnection | None = None
         self._reader: asyncio.Task | None = None
+        # 直近の確定テキスト。短い区間に文脈を与えるため prompt として回す
+        self._recent: list[str] = []
+        # item_id → 音声内の発話区間(ms)。録音の該当箇所を頭出しするために使う
+        self._spans: dict[str, dict] = {}
 
     async def start(self) -> None:
         key = get_api_key()
@@ -52,6 +59,19 @@ class Transcriber:
         self._ws = await websockets.connect(
             REALTIME_URL, additional_headers={"Authorization": f"Bearer {key}"}
         )
+        await self._send_session_update()
+        self._reader = asyncio.create_task(self._read_loop())
+        log.info("transcriber started: %s", self.speaker)
+
+    def _prompt(self) -> str:
+        """語彙のヒント + 直近の実際の発話。作り話は入れない。"""
+        if not self._recent:
+            return TRANSCRIBE_PROMPT
+        return f"{TRANSCRIBE_PROMPT} 直前の発話: " + " / ".join(self._recent)
+
+    async def _send_session_update(self) -> None:
+        if self._ws is None:
+            return
         await self._ws.send(json.dumps({
             "type": "session.update",
             "session": {
@@ -62,6 +82,7 @@ class Transcriber:
                         "transcription": {
                             "model": TRANSCRIBE_MODEL,
                             "language": TRANSCRIBE_LANGUAGE,
+                            "prompt": self._prompt(),
                         },
                         "turn_detection": {
                             "type": "server_vad",
@@ -71,8 +92,6 @@ class Transcriber:
                 },
             },
         }))
-        self._reader = asyncio.create_task(self._read_loop())
-        log.info("transcriber started: %s", self.speaker)
 
     async def send(self, pcm_8k: bytes) -> None:
         """電話帯域のPCMを投入する。一定量たまったらまとめて送信する。"""
@@ -109,6 +128,14 @@ class Transcriber:
                 out = self._translate(ev)
                 if out:
                     await self._on_event(out)
+                # 確定テキストを文脈に積み、次の区間の精度を上げる
+                if out and out.get("type") == "transcript" and out.get("final"):
+                    text = (out.get("text") or "").strip()
+                    if text:
+                        self._recent.append(text)
+                        del self._recent[:-TRANSCRIBE_CONTEXT_TURNS]
+                        with contextlib.suppress(Exception):
+                            await self._send_session_update()
         except websockets.ConnectionClosed:
             log.info("realtime connection closed: %s", self.speaker)
         except Exception:
@@ -126,14 +153,25 @@ class Transcriber:
                 "final": False,
             }
         if kind == "conversation.item.input_audio_transcription.completed":
+            item = ev.get("item_id")
             return {
                 "type": "transcript",
                 "speaker": self.speaker,
-                "item_id": ev.get("item_id"),
+                "item_id": item,
                 "text": ev.get("transcript", ""),
                 "final": True,
+                # 録音のどこを喋っているか。頭出し再生に使う
+                **self._spans.pop(item, {}),
             }
         if kind in ("input_audio_buffer.speech_started", "input_audio_buffer.speech_stopped"):
+            # VADが返す音声内の位置を控えておく。確定時に発話へ添える
+            item = ev.get("item_id")
+            if item:
+                span = self._spans.setdefault(item, {})
+                if kind.endswith("started"):
+                    span["audio_start_ms"] = ev.get("audio_start_ms")
+                else:
+                    span["audio_end_ms"] = ev.get("audio_end_ms")
             return {
                 "type": "speech",
                 "speaker": self.speaker,

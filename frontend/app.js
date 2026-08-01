@@ -242,13 +242,23 @@ function playSegment(contactId, startMs, endMs, btn) {
   segAudio.play().catch(() => btn.classList.remove("playing"));
 }
 
-// 発話に再生ボタンを付ける。録音があり、音声内の位置が分かるときだけ
+// 発話に再生ボタンを付ける。録音があり、音声内の位置が分かるときだけ。
+// 位置は再文字起こしのときに付くので、古い呼では欠けている
 function addPlayButton(el, msg) {
-  if (msg.audio_start_ms == null) return;
   const call = calls.get(msg.contact_id || selectedId);
   if (!call?.has_recording) return;
   const slot = el.querySelector(".seg");
-  if (!slot || slot.querySelector("button")) return;
+  if (!slot || slot.dataset.done) return;
+  slot.dataset.done = "1";
+
+  if (msg.audio_start_ms == null) {
+    // なぜ聞けないのかを画面で分かるようにする(黙って何も出さない方が不親切)
+    const hint = document.createElement("span");
+    hint.className = "seg-hint";
+    hint.textContent = "位置情報なし — 「再文字起こし」で付きます";
+    slot.appendChild(hint);
+    return;
+  }
   const b = document.createElement("button");
   b.className = "play-seg";
   const dur = ((msg.audio_end_ms - msg.audio_start_ms) / 1000).toFixed(1);

@@ -38,6 +38,11 @@ class CallEvent(dict):
     def customer_number(self) -> str | None:
         return self.get("customer_number")
 
+    @property
+    def instance_arn(self) -> str | None:
+        """どのConnectインスタンスから来た呼か(将来テナントを分ける足がかり)。"""
+        return self.get("instance_arn")
+
 
 async def poll_call_events() -> AsyncIterator[CallEvent]:
     """SQSをロングポーリングし、届いた呼イベントを順に返す。"""

@@ -13,24 +13,29 @@ from pathlib import Path
 
 import boto3
 
-from config import AWS_REGION, KVS_STREAM_PREFIX
+from config import (
+    AWS_REGION,
+    KVS_STREAM_PREFIX,
+    REPLAY_BYTES_PER_SEC,
+    REPLAY_CHUNK_BYTES as _CHUNK,
+)
 
 log = logging.getLogger(__name__)
 
-# 8kHz/16bit の2トラック + MKVのオーバーヘッド。実測(323KB / 9.7秒)に合わせた
-REPLAY_BYTES_PER_SEC = 33_000
-_CHUNK = 4096
 
-
-async def replay_file(path: Path, speed: float = 1.0) -> AsyncIterator[bytes]:
-    """録音済みMKVを実時間相当のペースで流す。"""
-    data = path.read_bytes()
+async def replay_bytes(data: bytes, speed: float = 1.0, label: str = "recording") -> AsyncIterator[bytes]:
+    """MKVのバイト列を実時間相当のペースで流す。"""
     interval = _CHUNK / (REPLAY_BYTES_PER_SEC * speed)
-    log.info("replay start: %s (%d bytes, %.1fx)", path.name, len(data), speed)
+    log.info("replay start: %s (%d bytes, %.1fx)", label, len(data), speed)
     for i in range(0, len(data), _CHUNK):
         yield data[i:i + _CHUNK]
         await asyncio.sleep(interval)
-    log.info("replay done: %s", path.name)
+    log.info("replay done: %s", label)
+
+
+def replay_file(path: Path, speed: float = 1.0) -> AsyncIterator[bytes]:
+    """録音済みMKVファイルを流す(開発用リプレイ)。"""
+    return replay_bytes(path.read_bytes(), speed, path.name)
 
 
 def _kvs_client():

@@ -1,10 +1,10 @@
-"""呼ごとの記録の永続化。
+"""呼ごとの記録(CDR)の永続化。交換機でいう呼詳細記録。
 
-交換機でいうCDR(呼詳細記録)+録音アーカイブ。1呼につき2ファイル:
-- recordings/calls/<contact_id>.json  … メタ情報と確定発言(通話終了時に書く)
-- recordings/calls/<contact_id>.mkv   … KVSから受けた生バイト列(実通話のみ)
+置き場は2通りで、`DATABASE_URL` があればPostgreSQL(db.py)、無ければ
+`recordings/calls/<contact_id>.json` に書く。ファイル版を残してあるのは、
+コンテナを立てずに開発できる状態を保つため。
 
-録音は個人データなので recordings/ ごとgitignoreされている前提。
+音声そのものは storage.py(S3互換)の担当で、ここでは扱わない。
 """
 
 from __future__ import annotations
@@ -12,8 +12,9 @@ from __future__ import annotations
 import json
 import logging
 import re
-from pathlib import Path
 
+import db
+import storage
 from config import CALLS_DIR
 
 log = logging.getLogger(__name__)
@@ -21,55 +22,73 @@ log = logging.getLogger(__name__)
 _SAFE_ID = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
-def _paths(contact_id: str) -> tuple[Path, Path]:
+def backend() -> str:
+    return "postgres" if db.enabled() else "files"
+
+
+def init() -> None:
+    if db.enabled():
+        db.init_db()
+    else:
+        log.info("DATABASE_URL 未設定のため呼の記録はファイルに書く: %s", CALLS_DIR)
+
+
+def _path(contact_id: str):
     if not _SAFE_ID.fullmatch(contact_id):
         raise ValueError(f"不正なcontact_id: {contact_id!r}")
-    return CALLS_DIR / f"{contact_id}.json", CALLS_DIR / f"{contact_id}.mkv"
+    return CALLS_DIR / f"{contact_id}.json"
 
 
 def save_record(record: dict) -> None:
     """通話終了時に呼の記録を書く。"""
+    if db.enabled():
+        db.save_record(record)
+        return
     CALLS_DIR.mkdir(parents=True, exist_ok=True)
-    path, _ = _paths(record["contact_id"])
+    path = _path(record["contact_id"])
     path.write_text(json.dumps(record, ensure_ascii=False, indent=1))
     log.info("call record saved: %s (%d messages)", path.name, len(record.get("messages", [])))
 
 
-def recording_path(contact_id: str) -> Path:
-    """録音MKVの置き場所(存在チェックは呼び出し側で)。"""
-    _, mkv = _paths(contact_id)
-    return mkv
-
-
 def load_record(contact_id: str) -> dict | None:
-    path, mkv = _paths(contact_id)
-    if not path.exists():
-        return None
-    rec = json.loads(path.read_text())
-    rec["has_recording"] = mkv.exists()
+    if db.enabled():
+        rec = db.load_record(contact_id)
+    else:
+        path = _path(contact_id)
+        rec = json.loads(path.read_text()) if path.exists() else None
+    if rec is not None:
+        rec["has_recording"] = storage.has_recording(contact_id)
     return rec
 
 
 def list_records() -> list[dict]:
     """保存済みの呼の一覧(新しい順、メタのみ)。"""
-    if not CALLS_DIR.exists():
-        return []
-    out = []
-    for p in CALLS_DIR.glob("*.json"):
-        try:
-            rec = json.loads(p.read_text())
-        except json.JSONDecodeError:
-            log.warning("壊れた呼記録を無視: %s", p.name)
-            continue
-        out.append({
-            "contact_id": rec.get("contact_id"),
-            "label": rec.get("label"),
-            "customer_number": rec.get("customer_number"),
-            "started_at": rec.get("started_at"),
-            "ended_at": rec.get("ended_at"),
-            "message_count": len(rec.get("messages", [])),
-            "has_recording": p.with_suffix(".mkv").exists(),
-            "live": False,
-        })
-    out.sort(key=lambda r: r.get("started_at") or 0, reverse=True)
+    # 録音の有無は1回の問い合わせでまとめて調べる(1呼ずつHEADを打たない)
+    recorded = storage.list_recorded_ids()
+
+    if db.enabled():
+        out = db.list_records()
+    else:
+        out = []
+        if CALLS_DIR.exists():
+            for p in CALLS_DIR.glob("*.json"):
+                try:
+                    rec = json.loads(p.read_text())
+                except json.JSONDecodeError:
+                    log.warning("壊れた呼記録を無視: %s", p.name)
+                    continue
+                out.append({
+                    "contact_id": rec.get("contact_id"),
+                    "label": rec.get("label"),
+                    "customer_number": rec.get("customer_number"),
+                    "started_at": rec.get("started_at"),
+                    "ended_at": rec.get("ended_at"),
+                    "max_anger": rec.get("max_anger"),
+                    "message_count": len(rec.get("messages", [])),
+                    "live": False,
+                })
+        out.sort(key=lambda r: r.get("started_at") or 0, reverse=True)
+
+    for r in out:
+        r["has_recording"] = r["contact_id"] in recorded
     return out

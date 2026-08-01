@@ -29,10 +29,11 @@ import audio
 import history
 import signaling
 import sources
-from config import FRONTEND_DIR, RECORDINGS_DIR
+import storage
+from config import FRONTEND_DIR, LOG_LEVEL, RECORDINGS_DIR, WATCH_CALLS
 from hub import CallSession, Hub
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+logging.basicConfig(level=LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 log = logging.getLogger("main")
 
 # 呼ごとのタスク。同時に複数の呼が来ても取り違えない
@@ -41,8 +42,10 @@ _sessions: dict[str, asyncio.Task] = {}
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    history.init()
+    log.info("呼の記録: %s / 録音: %s", history.backend(), "s3" if storage.enabled() else "files")
     watcher = None
-    if os.getenv("WATCH_CALLS", "0") == "1":
+    if WATCH_CALLS:
         watcher = asyncio.create_task(_watch_signaling())
     else:
         log.info("WATCH_CALLS=0 のためシグナリング監視はしない(リプレイのみ)")
@@ -107,6 +110,7 @@ async def _watch_signaling() -> None:
             contact_id=ev.contact_id,
             label=ev.stream_arn.rsplit("/", 2)[-2],
             customer_number=ev.customer_number,
+            instance_arn=ev.instance_arn,
             record_audio=True,
             save_transcript=True,
         )
@@ -184,10 +188,10 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
     if contact_id in _sessions and not _sessions[contact_id].done():
         raise HTTPException(409, "この呼は処理中です")
     try:
-        path = history.recording_path(contact_id)
+        data = storage.get_recording(contact_id)
     except ValueError:
         raise HTTPException(400, "不正なcontact_id")
-    if not path.exists():
+    if data is None:
         raise HTTPException(404, "この呼の録音がありません")
 
     # 元の呼のメタ(発信者番号・開始時刻)を引き継ぐ
@@ -198,11 +202,14 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
         contact_id=contact_id,
         label=meta.get("label") or "reprocess",
         customer_number=meta.get("customer_number"),
+        instance_arn=meta.get("instance_arn"),
         save_transcript=True,
     )
+    # 再処理でも「いつの通話か」は動かさない
     if meta.get("started_at"):
         session.record.started_at = meta["started_at"]
-    _start_session(session, sources.replay_file(path, speed))
+    session.record.fixed_ended_at = meta.get("ended_at")
+    _start_session(session, sources.replay_bytes(data, speed, contact_id))
     return {"status": "started", "contact_id": contact_id, "speed": speed}
 
 
@@ -210,13 +217,13 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
 def api_recording_wav(contact_id: str) -> Response:
     """録音を左=相手/右=こちらのステレオWAVで返す(ブラウザ再生用)。"""
     try:
-        path = history.recording_path(contact_id)
+        data = storage.get_recording(contact_id)
     except ValueError:
         raise HTTPException(400, "不正なcontact_id")
-    if not path.exists():
+    if data is None:
         raise HTTPException(404, "この呼の録音がありません")
     try:
-        wav = audio.mkv_to_stereo_wav(path.read_bytes())
+        wav = audio.mkv_to_stereo_wav(data)
     except ValueError as e:
         raise HTTPException(422, str(e))
     return Response(wav, media_type="audio/wav")
@@ -246,8 +253,10 @@ def api_streams() -> list[dict]:
 def api_health() -> dict:
     return {
         "status": "ok",
-        "watching": os.getenv("WATCH_CALLS", "0") == "1",
+        "watching": WATCH_CALLS,
         "active_calls": len(_sessions),
+        "history_backend": history.backend(),
+        "recording_backend": "s3" if storage.enabled() else "files",
         "ts": time.time(),
     }
 

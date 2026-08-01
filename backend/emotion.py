@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -131,35 +132,50 @@ class AngerWatcher:
         self._emit = emit
         self._last_at = 0.0
         self._busy = False
+        # 判定中・間隔内に来た発話は捨てずに「最新の1件」として予約する
+        self._pending: tuple[list[dict], dict] | None = None
         self.max_score = 0
 
     def should_judge(self, msg: dict) -> bool:
-        """相手の確定発話だけを対象にし、間隔を空ける。"""
-        if msg.get("speaker") != "customer" or not msg.get("final") or not msg.get("text"):
-            return False
-        if self._busy:
-            return False
-        return (time.monotonic() - self._last_at) >= ANGER_MIN_INTERVAL_SEC
+        """相手の確定発話だけを対象にする。間隔の制御は run() が持つ。"""
+        return bool(
+            msg.get("speaker") == "customer" and msg.get("final") and msg.get("text")
+        )
 
     async def run(self, messages: list[dict], target: dict) -> None:
-        """判定して、対象の発話に結果を書き込みブラウザへ流す。"""
+        """判定して、対象の発話に結果を書き込みブラウザへ流す。
+
+        間隔を空けるが**発話は捨てない**。判定中に来たものは最新の1件に畳み込み、
+        直前の判定が終わり次第それを判定する。捨てる実装にすると、発話が立て込む
+        場面——つまり怒りが高まっている場面——ほど判定が抜ける。
+        """
+        self._pending = (messages, target)
+        if self._busy:
+            return  # 走っているループが拾う
         self._busy = True
-        self._last_at = time.monotonic()
         try:
-            result = await judge(build_window(messages))
+            while self._pending is not None:
+                wait = ANGER_MIN_INTERVAL_SEC - (time.monotonic() - self._last_at)
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                msgs, tgt = self._pending
+                self._pending = None
+                self._last_at = time.monotonic()
+
+                result = await judge(build_window(msgs))
+                if result is None:
+                    continue
+
+                # 発話そのものにスコアを載せる(記録にもそのまま残る)
+                tgt["anger_score"] = result["score"]
+                tgt["anger_reason"] = result["reason"]
+                self.max_score = max(self.max_score, result["score"])
+
+                await self._emit({
+                    "type": "emotion",
+                    "speaker": "customer",
+                    "item_id": tgt.get("item_id"),
+                    **result,
+                })
         finally:
             self._busy = False
-        if result is None:
-            return
-
-        # 発話そのものにスコアを載せる(記録にもそのまま残る)
-        target["anger_score"] = result["score"]
-        target["anger_reason"] = result["reason"]
-        self.max_score = max(self.max_score, result["score"])
-
-        await self._emit({
-            "type": "emotion",
-            "speaker": "customer",
-            "item_id": target.get("item_id"),
-            **result,
-        })

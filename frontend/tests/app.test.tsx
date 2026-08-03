@@ -152,6 +152,45 @@ describe("ライブ更新", () => {
   });
 });
 
+describe("テキストと声の融合", () => {
+  it("同じ発話に声が付いたら高い方が主表示になり、声だけでもアラートが出る", async () => {
+    mockFetch({
+      "/api/history/t1": { ...RECORD, card: null, live: true, ended_at: null },
+      "/api/history": [{ ...RECORD, card: null, live: true, ended_at: null, messages: undefined }],
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByTestId("call-t1"));
+    await screen.findByTestId("situation");
+
+    // テキスト判定45(アラートなし)→ 同じ発話に声78(アラートあり)
+    act(() => {
+      FakeWebSocket.push({ type: "transcript", contact_id: "t1", speaker: "customer",
+        item_id: "x9", text: "いつまで待たせるんですか", final: true, ts: 1700000070 });
+      FakeWebSocket.push({ type: "emotion", contact_id: "t1", item_id: "x9",
+        score: 45, reason: "苛立ち", alert: false });
+    });
+    expect(screen.getByTestId("sit-score")).toHaveTextContent("45");
+
+    act(() => {
+      FakeWebSocket.push({ type: "voice", contact_id: "t1", item_id: "x9",
+        score: 78, tone: "詰め寄る鋭い声", alert: true });
+    });
+    // 融合値: max(45, 78) = 78。声はテキストを先行するので待たずに警報
+    expect(screen.getByTestId("sit-score")).toHaveTextContent("78");
+    expect(screen.getByTestId("alert")).toHaveTextContent("78");
+    expect(screen.getByTestId("alert")).toHaveTextContent("声のトーン");
+
+    // 次の発話のテキスト判定(20)が来たら、古い声は混ぜない=下がる
+    act(() => {
+      FakeWebSocket.push({ type: "transcript", contact_id: "t1", speaker: "customer",
+        item_id: "y1", text: "わかりました", final: true, ts: 1700000075 });
+      FakeWebSocket.push({ type: "emotion", contact_id: "t1", item_id: "y1",
+        score: 20, reason: "落ち着いた", alert: false });
+    });
+    expect(screen.getByTestId("sit-score")).toHaveTextContent("20");
+  });
+});
+
 describe("未知のWSイベント", () => {
   it("型に無いイベント(speech等)が来ても状態が壊れない", async () => {
     mockFetch({

@@ -62,8 +62,16 @@ class CallRecord:
 
     @property
     def max_anger(self) -> int | None:
-        """この呼で最も高かった怒り度。履歴から「揉めた通話」を探すための値。"""
-        scores = [m["anger_score"] for m in self.messages if m.get("anger_score") is not None]
+        """この呼で最も高かった怒り度。履歴から「揉めた通話」を探すための値。
+
+        **テキストと声の高い方を採る(発話ごとにmax)。** 実測で声はテキストを
+        先行する(2026-08-03)ため、片方だけ見ると揉めた通話を取り逃す。
+        """
+        scores = [
+            max(m.get("anger_score") or 0, m.get("voice_score") or 0)
+            for m in self.messages
+            if m.get("anger_score") is not None or m.get("voice_score") is not None
+        ]
         return max(scores) if scores else None
 
     def meta(self) -> dict:

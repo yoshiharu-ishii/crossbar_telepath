@@ -66,6 +66,17 @@ export default function App() {
     };
   }, []);
 
+  // liveモードで未選択なら、進行中の呼を自動で開く。WS接続より前に始まった呼
+  // (画面を後から開いた・リロードした場合)はcall_startedが来ないため、
+  // イベント頼みだと取りこぼす
+  useEffect(() => {
+    if (state.mode !== "live" || state.selectedId != null) return;
+    const active = [...state.calls.values()]
+      .filter((c) => c.live)
+      .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))[0];
+    if (active) void openCall(active.contact_id, "live");
+  }, [state.calls, state.mode, state.selectedId, openCall]);
+
   const selected = state.selectedId ? state.calls.get(state.selectedId) : undefined;
 
   return (

@@ -7,10 +7,21 @@
 import type { CallMeta, CallRecord, Message, WsEvent } from "./types";
 
 export interface Situation {
-  score: number | null;
+  score: number | null;          // テキスト判定(最新の発話)
   reason: string;
-  voice: { score: number; tone: string } | null;
-  maxAnger: number | null;
+  voice: { score: number; tone: string; itemId?: string } | null;
+  lastItemId?: string;           // 最新のテキスト判定が付いた発話
+  maxAnger: number | null;       // 融合値(テキスト/声の高い方)の最大
+}
+
+/** 表示用の融合値。**同じ発話に付いた声だけ**を混ぜる(高い方を採る)。
+    古い発話の声を混ぜ続けると、相手が落ち着いてもゲージが下がらなくなる。
+    maxにするのは、実測で声がテキストを先行する(早期検知が目的)ため */
+export function fusedScore(s: Situation): number | null {
+  if (s.voice && s.voice.itemId != null && s.voice.itemId === s.lastItemId) {
+    return Math.max(s.score ?? 0, s.voice.score);
+  }
+  return s.score;
 }
 
 export interface State {
@@ -51,16 +62,21 @@ function situationFrom(messages: Message[], meta: CallMeta): Situation {
   let score: number | null = null;
   let reason = "";
   let voice: Situation["voice"] = null;
+  let lastItemId: string | undefined;
   let maxAnger: number | null = meta.max_anger ?? null;
   for (const m of messages) {
     if (m.anger_score != null) {
       score = m.anger_score;
       reason = m.anger_reason || "";
-      if (maxAnger == null || m.anger_score > maxAnger) maxAnger = m.anger_score;
+      lastItemId = m.item_id;
     }
-    if (m.voice_score != null) voice = { score: m.voice_score, tone: m.voice_tone || "" };
+    if (m.voice_score != null)
+      voice = { score: m.voice_score, tone: m.voice_tone || "", itemId: m.item_id };
+    const fused = Math.max(m.anger_score ?? 0, m.voice_score ?? 0);
+    if (m.anger_score != null || m.voice_score != null)
+      if (maxAnger == null || fused > maxAnger) maxAnger = fused;
   }
-  return { score, reason, voice, maxAnger };
+  return { score, reason, voice, lastItemId, maxAnger };
 }
 
 export function reducer(state: State, action: Action): State {
@@ -157,7 +173,8 @@ function applyWs(state: State, ev: WsEvent): State {
         ...state,
         calls,
         messages,
-        situation: { ...state.situation, score: ev.score, reason: ev.reason || "", maxAnger },
+        situation: { ...state.situation, score: ev.score, reason: ev.reason || "",
+                     lastItemId: ev.item_id, maxAnger },
         alert: ev.alert ? { score: ev.score, reason: ev.reason || "" } : state.alert,
       };
     }
@@ -169,10 +186,24 @@ function applyWs(state: State, ev: WsEvent): State {
           ? { ...m, voice_score: ev.score, voice_tone: ev.tone }
           : m,
       );
+      const maxAnger =
+        state.situation.maxAnger == null || ev.score > state.situation.maxAnger
+          ? ev.score
+          : state.situation.maxAnger;
+      const alert = (ev as { alert?: boolean }).alert
+        ? { score: ev.score, reason: `声のトーン: ${ev.tone || ""}` }
+        : state.alert;
+      const calls =
+        state.selectedId != null
+          ? upsert(state.calls, { contact_id: state.selectedId, max_anger: maxAnger })
+          : state.calls;
       return {
         ...state,
+        calls,
         messages,
-        situation: { ...state.situation, voice: { score: ev.score, tone: ev.tone || "" } },
+        situation: { ...state.situation, maxAnger,
+                     voice: { score: ev.score, tone: ev.tone || "", itemId: ev.item_id } },
+        alert,
       };
     }
 

@@ -1,13 +1,14 @@
 import { useState } from "react";
-import type { Situation } from "../store";
+import { fusedScore, type Situation } from "../store";
 import type { CallMeta } from "../types";
 import { angerColor, clock, day, shortId } from "../anger";
 
 /** 状況パネル。判定の「読み」はここ1箇所に集約する(発話には色とスコアだけ)。
     バロメータは累積ではなく「今この瞬間」——相手が落ち着けば下がる。 */
 function SituationPanel({ s }: { s: Situation }) {
-  const score = s.score;
-  const gap = s.voice != null && score != null ? s.voice.score - score : null;
+  // メインの数字はテキストと声の融合値(同じ発話なら高い方)。内訳は下の行に出す
+  const score = fusedScore(s);
+  const gap = s.voice != null && s.score != null ? s.voice.score - s.score : null;
   return (
     <div className="border rounded p-2 bg-body" style={{ width: 300, flex: "none" }} data-testid="situation">
       <div className="d-flex align-items-baseline gap-2" style={{ fontSize: 11 }}>

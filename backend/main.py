@@ -323,7 +323,14 @@ def api_health() -> dict:
 
 @app.get("/")
 def index() -> FileResponse:
+    if not (FRONTEND_DIR / "index.html").exists():
+        raise HTTPException(503, "フロントが未ビルドです。frontend/ で `npm run build` を実行してください")
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
-app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+# ビルド成果物が無くてもバックエンド単独で起動できるようにする。
+# CI(pytest)やAPIだけ叩く用途では dist/ は存在しない
+if (FRONTEND_DIR / "assets").is_dir():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")
+else:
+    log.warning("frontend/dist が無いため画面は配信しない(APIのみ): %s", FRONTEND_DIR)

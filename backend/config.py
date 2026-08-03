@@ -37,8 +37,6 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-1")
 KVS_STREAM_PREFIX = os.getenv("KVS_STREAM_PREFIX", "crossbar-telepath")
 CALL_EVENTS_QUEUE = os.getenv("CALL_EVENTS_QUEUE", f"{KVS_STREAM_PREFIX}-call-events")
 SQS_WAIT_SECONDS = int(os.getenv("SQS_WAIT_SECONDS", "20"))
-# 取り逃した呼を SearchContacts から復元するときだけ要る(通常運転では未使用)
-CONNECT_INSTANCE_ID = os.getenv("CONNECT_INSTANCE_ID", "")
 
 # ---- 推論エンドポイント -----------------------------------------------
 # OpenAI互換のエンドポイントなら差し替えられる。ただしデータ主権が要件に
@@ -76,10 +74,24 @@ ANGER_WINDOW = int(os.getenv("ANGER_WINDOW", "5"))
 ANGER_THRESHOLD = int(os.getenv("ANGER_THRESHOLD", "70"))
 # 判定の最小間隔(秒)。連続発話でAPIを叩きすぎないためのデバウンス
 ANGER_MIN_INTERVAL_SEC = float(os.getenv("ANGER_MIN_INTERVAL_SEC", "3"))
-# 音声判定の起動方針: off | threshold(テキストが閾値超え時) | interval
+# 音声判定(トーン)の起動方針:
+#   off    … 使わない
+#   auto   … テキスト判定が VOICE_TRIGGER_SCORE に届いたときだけ聴く(推奨)
+#   always … 相手の確定発話ごとに毎回聴く(検証用。課金が跳ねる)
 # 音声入力は通話時間ぶん課金されるため、既定では止めておく
 VOICE_JUDGE_MODE = os.getenv("VOICE_JUDGE_MODE", "off")
-VOICE_JUDGE_INTERVAL_SEC = float(os.getenv("VOICE_JUDGE_INTERVAL_SEC", "30"))
+VOICE_JUDGE_INTERVAL_SEC = float(os.getenv("VOICE_JUDGE_INTERVAL_SEC", "10"))
+# gpt-audio-mini は使えない。同一台詞を口調だけ変えた対照実験(2026-08-03)で、
+# mini は calm[45,55,45] / loud[45,55,55] と差が出なかった。full は
+# calm[45,55,45] / loud[75,72,65] で約25点離れる。**声を聴き分けられるのは full だけ**
+VOICE_JUDGE_MODEL = os.getenv("VOICE_JUDGE_MODEL", "gpt-audio")
+# テキスト判定がこの値に届いたら声を聴きに行く。閾値(70)より低くしないと、
+# 「言葉は丁寧だが声が怒っている」——音声でしか取れない場面——を取り逃す
+VOICE_TRIGGER_SCORE = int(os.getenv("VOICE_TRIGGER_SCORE", "45"))
+
+# 通話カード(切断後に1回だけ)。要約・次アクション・折り返し要否をJSONで出す
+CARD_MODEL = os.getenv("CARD_MODEL", "gpt-4o-mini")
+CARD_ENABLED = _bool("CARD_ENABLED", True)
 
 # ---- 永続化(PH3) ----------------------------------------------------
 # 空ならファイル(recordings/calls/*.json)にフォールバックする

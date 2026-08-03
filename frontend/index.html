@@ -67,15 +67,29 @@
   main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
   #call-head {
     padding: 10px 20px; border-bottom: 1px solid var(--line); background: var(--panel);
-    font-size: 13px; color: var(--muted); display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    font-size: 13px; color: var(--muted); display: flex; gap: 16px; align-items: flex-start;
     flex: none;
   }
+  .head-left { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .head-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .head-ctl { display: flex; gap: 8px; align-items: center; }
   #feed { flex: 1; overflow-y: auto; padding: 16px 20px; }
-  .row { display: flex; margin: 8px 0; }
+  .row { display: flex; margin: 10px 0; }
   .row.agent { justify-content: flex-end; }
-  .bubble { max-width: 72%; padding: 8px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--panel); }
-  .row.customer .bubble { background: var(--customer-bg); border-bottom-left-radius: 4px; }
-  .row.agent .bubble { background: var(--agent-bg); border-bottom-right-radius: 4px; }
+  .bubble {
+    position: relative; max-width: 72%; padding: 8px 14px;
+    border-radius: 16px; border: 1px solid var(--line); background: var(--panel);
+  }
+  .row.customer .bubble { background: var(--customer-bg); }
+  .row.agent .bubble { background: var(--agent-bg); }
+  /* 吹き出しの尻尾。角を45度回した正方形で作るので、
+     background/borderを継承させれば怒りの色分けにも自動で追従する */
+  .bubble::after {
+    content: ""; position: absolute; width: 11px; height: 11px; bottom: 9px;
+    background: inherit; border: inherit; transform: rotate(45deg);
+  }
+  .row.customer .bubble::after { left: -6px; border-width: 0 0 1px 1px; }
+  .row.agent .bubble::after { right: -6px; border-width: 1px 1px 0 0; }
   .who { font-size: 11px; font-weight: 600; margin-bottom: 2px; }
   .row.customer .who { color: var(--customer); }
   .row.agent .who { color: var(--agent); }
@@ -104,14 +118,51 @@
   .play-seg:hover { border-color: var(--accent); color: var(--accent); }
   .play-seg.playing { border-color: var(--accent); color: var(--accent); }
   .seg-hint { font-size: 11px; color: var(--muted); opacity: .8; }
-  .anger-tag {
-    font-size: 11px; font-family: ui-monospace, monospace;
-    color: var(--muted); margin-top: 2px;
+
+  /* 状況パネル。判定の「読み」はここ1箇所に集約する。
+     発話ごとに理由を書くと似た文が延々並んで、肝心のログが読めなくなるため */
+  #situation {
+    margin-left: auto; flex: none; width: 300px;
+    border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px;
+    background: var(--bg);
   }
-  /* ヘッダの怒りゲージ */
-  #gauge-wrap { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  #gauge { width: 120px; height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+  #situation.hidden { display: none; }
+  #sit-top { display: flex; align-items: baseline; gap: 8px; font-size: 11px; }
+  #sit-label { color: var(--muted); }
+  #sit-score { margin-left: auto; font-size: 17px; font-weight: 700; font-family: ui-monospace, monospace; line-height: 1.2; }
+  #sit-max { color: var(--muted); font-family: ui-monospace, monospace; }
+  #gauge { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 5px 0 4px; }
   #gauge-bar { height: 100%; width: 0; background: var(--live); transition: width .4s, background .4s; }
+  #sit-reason { font-size: 12px; color: var(--fg); line-height: 1.45; }
+  #sit-reason:empty::before { content: "判定待ち"; color: var(--muted); }
+  /* 声のトーン判定。テキストと食い違うことに意味があるので、混ぜずに並べる */
+  #sit-voice { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 11px; }
+  #sit-voice.hidden { display: none; }
+  #sit-voice .row2 { display: flex; align-items: baseline; gap: 6px; }
+  #sit-voice .lbl { color: var(--muted); }
+  #sit-voice .val { font-family: ui-monospace, monospace; font-weight: 700; font-size: 14px; }
+  #sit-voice .gap { margin-left: auto; color: var(--customer); font-weight: 600; }
+  #sit-voice .tone { color: var(--fg); line-height: 1.45; margin-top: 2px; }
+  /* 通話カード。切断後に出る対応記録 */
+  #card {
+    margin: 0 20px 16px; padding: 12px 16px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--panel); font-size: 13px;
+  }
+  #card.hidden { display: none; }
+  #card h2 { font-size: 12px; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  #card dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+  #card dt { color: var(--muted); font-size: 12px; }
+  #card dd { margin: 0; }
+  #card .flag {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    background: var(--customer-bg); color: var(--customer); border: 1px solid var(--customer);
+  }
+  #card .quote {
+    margin-top: 2px; padding-left: 10px; border-left: 3px solid var(--customer);
+    color: var(--fg);
+  }
+  #card .head { display: flex; align-items: baseline; gap: 10px; }
+  #card .head a { margin-left: auto; font-size: 12px; color: var(--accent); }
   /* 閾値を超えたときの警告帯 */
   #alert {
     display: none; padding: 10px 20px; background: #b3261e; color: #fff;
@@ -145,6 +196,7 @@
   <main>
     <div id="call-head"><span class="quiet" style="padding:0">呼を選択してください</span></div>
     <div id="alert"><strong id="alert-title"></strong><div class="reason" id="alert-reason"></div></div>
+    <div id="card" class="hidden"></div>
     <div id="feed"><div class="quiet">左の履歴から呼を選ぶと、ここに文字起こしが出ます。</div></div>
   </main>
 </div>

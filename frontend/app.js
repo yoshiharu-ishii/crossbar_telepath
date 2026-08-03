@@ -15,6 +15,7 @@ const statusEl = document.getElementById("status");
 const alertEl = document.getElementById("alert");
 const alertTitleEl = document.getElementById("alert-title");
 const alertReasonEl = document.getElementById("alert-reason");
+const cardEl = document.getElementById("card");
 
 const WHO = { customer: "相手 (FROM_CUSTOMER)", agent: "こちら (TO_CUSTOMER)" };
 const calls = new Map(); // contact_id -> meta
@@ -31,6 +32,12 @@ function angerClass(score) {
 let mode = "live";
 let selectedId = null; // 右ペインに表示中の呼
 let bubbles = new Map();
+// 表示中の呼の状態。ヘッダは通話終了などで再描画されるので、
+// 最後の判定をここに持っておかないと状況パネルが空に戻ってしまう
+let maxAnger = null;
+let curAnger = null;
+let curReason = "";
+let curVoice = null;   // {score, tone}
 
 function clock(ts) {
   return ts ? new Date(ts * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "";
@@ -156,27 +163,28 @@ function renderHead(m) {
     m.customer_number,
     `開始 ${day(m.started_at)} ${clock(m.started_at)}`,
   ].filter(Boolean);
+  const left = document.createElement("div");
+  left.className = "head-left";
+  const meta = document.createElement("div");
+  meta.className = "head-meta";
   for (const p of parts) {
     const s = document.createElement("span");
     s.textContent = p;
-    headEl.appendChild(s);
+    meta.appendChild(s);
   }
-  // 怒りゲージ(その呼の最大値)
-  const g = document.createElement("span");
-  g.id = "gauge-wrap";
-  g.innerHTML = `<span>怒り</span><span id="gauge"><span id="gauge-bar"></span></span><span id="gauge-val">—</span>`;
-  headEl.appendChild(g);
-  setGauge(m.max_anger);
+  left.appendChild(meta);
 
   // 呼の操作卓: 録音の再生/停止と、同じCallIDでの再文字起こし
   if (!m.live && m.has_recording) {
+    const ctl = document.createElement("div");
+    ctl.className = "head-ctl";
     const audio = document.createElement("audio");
     audio.controls = true;
     audio.preload = "none";
     audio.src = `/api/recordings/${m.contact_id}.wav`;
     audio.title = "左=相手 / 右=こちら";
     audio.style.height = "32px";
-    headEl.appendChild(audio);
+    ctl.appendChild(audio);
 
     const b = document.createElement("button");
     b.textContent = "再文字起こし";
@@ -192,7 +200,74 @@ function renderHead(m) {
         b.disabled = false;
       }
     };
-    headEl.appendChild(b);
+    ctl.appendChild(b);
+    left.appendChild(ctl);
+  }
+  headEl.appendChild(left);
+
+  // 状況パネル(操作卓の右)。バロメータは「今の状態」、脇に呼全体の最大値
+  const sit = document.createElement("div");
+  sit.id = "situation";
+  sit.innerHTML =
+    `<div id="sit-top"><span id="sit-label">相手の状態</span>` +
+    `<span id="sit-max"></span><span id="sit-score">—</span></div>` +
+    `<div id="gauge"><span id="gauge-bar"></span></div>` +
+    `<div id="sit-reason"></div>` +
+    `<div id="sit-voice" class="hidden"><div class="row2">` +
+    `<span class="lbl">声のトーン</span><span class="val"></span>` +
+    `<span class="gap"></span></div><div class="tone"></div></div>`;
+  headEl.appendChild(sit);
+  if (m.max_anger != null && (maxAnger == null || m.max_anger > maxAnger)) maxAnger = m.max_anger;
+  setSituation(curAnger, curReason);
+}
+
+// 通話カード。切断後に1回だけ作られる対応記録で、JSONで持ち出せる
+function renderCard(m) {
+  const c = m?.card;
+  cardEl.classList.toggle("hidden", !c);
+  if (!c) return;
+  const rows = [];
+  const add = (k, v) => { if (v) rows.push([k, v]); };
+  add("用件", c.topic);
+  add("次アクション", c.next_action);
+  if (c.callback_needed) add("折り返し", c.callback_reason || "要");
+  if (c.unresolved?.length) add("未解決", c.unresolved.join(" / "));
+
+  cardEl.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "head";
+  head.innerHTML = `<h2>通話カード</h2>`;
+  if (c.harassment) {
+    const f = document.createElement("span");
+    f.className = "flag";
+    f.textContent = "カスハラの疑い";
+    head.appendChild(f);
+  }
+  const dl0 = document.createElement("a");
+  dl0.href = `/api/history/${m.contact_id}/card.json`;
+  dl0.textContent = "JSONで保存";
+  head.appendChild(dl0);
+  cardEl.appendChild(head);
+
+  const sum = document.createElement("div");
+  sum.textContent = c.summary || "";
+  sum.style.marginBottom = rows.length ? "8px" : "0";
+  cardEl.appendChild(sum);
+
+  if (rows.length) {
+    const dl = document.createElement("dl");
+    for (const [k, v] of rows) {
+      const dt = document.createElement("dt"); dt.textContent = k;
+      const dd = document.createElement("dd"); dd.textContent = v;
+      dl.append(dt, dd);
+    }
+    cardEl.appendChild(dl);
+  }
+  if (c.harassment && c.harassment_quote) {
+    const q = document.createElement("div");
+    q.className = "quote";
+    q.textContent = c.harassment_quote;   // 記録として使うので要約せず原文のまま
+    cardEl.appendChild(q);
   }
 }
 
@@ -204,7 +279,7 @@ function addBubble(msg) {
   row.className = `row ${msg.speaker}`;
   row.innerHTML =
     `<div class="bubble pending"><div class="who"></div><div class="text"></div>` +
-    `<div class="anger-tag"></div><div class="seg"></div><div class="time"></div></div>`;
+    `<div class="seg"></div><div class="time"></div></div>`;
   row.querySelector(".who").textContent = WHO[msg.speaker] || msg.speaker;
   row.querySelector(".time").textContent = clock(msg.ts);
   feedEl.appendChild(row);
@@ -223,6 +298,9 @@ function applyTranscript(msg) {
     // 保存済みの記録には判定結果が乗っている
     if (msg.anger_score != null) {
       applyAnger({ item_id: msg.item_id, score: msg.anger_score, reason: msg.anger_reason });
+    }
+    if (msg.voice_score != null) {
+      applyVoice({ item_id: msg.item_id, score: msg.voice_score, tone: msg.voice_tone });
     }
   } else {
     text.textContent += msg.delta || "";
@@ -267,31 +345,82 @@ function addPlayButton(el, msg) {
   slot.appendChild(b);
 }
 
-function setGauge(score) {
+function angerColor(s) {
+  return s >= ANGER_ALERT ? "#e2564a" : s >= 45 ? "#ef9a72" : s >= 31 ? "#d8a13c" : "#2e9e5b";
+}
+
+// 状況パネル。バロメータは「今この瞬間の状態」を出す(累積ではない)。
+// 相手が落ち着けば下がってほしい——オペレータに「もう戻っていい」を伝えるため
+function setSituation(score, reason) {
   const bar = document.getElementById("gauge-bar");
-  const val = document.getElementById("gauge-val");
+  const val = document.getElementById("sit-score");
+  const rea = document.getElementById("sit-reason");
+  const mx = document.getElementById("sit-max");
   if (!bar || !val) return;
   const s = score == null ? 0 : score;
   bar.style.width = `${s}%`;
-  bar.style.background = s >= ANGER_ALERT ? "#e2564a" : s >= 45 ? "#ef9a72" : "var(--live)";
+  bar.style.background = angerColor(s);
   val.textContent = score == null ? "—" : String(score);
+  val.style.color = score == null ? "var(--muted)" : angerColor(s);
+  if (rea) rea.textContent = reason || "";
+  if (mx) mx.textContent = maxAnger == null ? "" : `最大 ${maxAnger}`;
+
+  // 声の判定は別枠に出す。テキストと食い違ったときに差を明示する
+  const v = document.getElementById("sit-voice");
+  if (!v) return;
+  v.classList.toggle("hidden", curVoice == null);
+  if (curVoice == null) return;
+  const vv = v.querySelector(".val");
+  vv.textContent = String(curVoice.score);
+  vv.style.color = angerColor(curVoice.score);
+  v.querySelector(".tone").textContent = curVoice.tone || "";
+  // 20点以上開いたら「声にしか出ていない怒り」の可能性が高い
+  const d = score == null ? null : curVoice.score - score;
+  v.querySelector(".gap").textContent =
+    d != null && Math.abs(d) >= 20 ? `テキストと ${d > 0 ? "+" : ""}${d}` : "";
 }
 
-// 判定結果を発話に反映する。スコアの意味は「その発話時点での会話の状態」
+// 判定結果を反映する。スコアの意味は「その発話時点での会話の状態」。
+// 発話には色だけ乗せ、読み(理由)は状況パネルに集約する
 function applyAnger(msg) {
   const el = bubbles.get(`customer:${msg.item_id}`);
   if (el) {
     el.classList.remove("a1", "a2", "a3");
     const cls = angerClass(msg.score);
     if (cls) el.classList.add(cls);
-    const tag = el.querySelector(".anger-tag");
-    if (tag) tag.textContent = msg.reason ? `怒り ${msg.score} · ${msg.reason}` : `怒り ${msg.score}`;
+    const t = el.querySelector(".time");
+    if (t && !t.dataset.scored) {
+      t.dataset.scored = "1";
+      const s = document.createElement("span");
+      s.className = "score";
+      s.textContent = ` · ${msg.score}`;
+      s.style.color = angerColor(msg.score);
+      t.appendChild(s);
+    }
   }
+  if (maxAnger == null || msg.score > maxAnger) maxAnger = msg.score;
+  curAnger = msg.score;
+  curReason = msg.reason || "";
+  setSituation(curAnger, curReason);
   const cur = calls.get(selectedId);
   if (cur && (cur.max_anger == null || msg.score > cur.max_anger)) {
     cur.max_anger = msg.score;
-    setGauge(msg.score);
     renderList();
+  }
+}
+
+// 声の判定。テキストの発話に相乗りするが、スコアは混ぜない
+function applyVoice(msg) {
+  curVoice = { score: msg.score, tone: msg.tone };
+  setSituation(curAnger, curReason);
+  const el = bubbles.get(`customer:${msg.item_id}`);
+  const t = el?.querySelector(".time");
+  if (t && !t.dataset.voiced) {
+    t.dataset.voiced = "1";
+    const s = document.createElement("span");
+    s.textContent = ` · 声${msg.score}`;
+    s.style.color = angerColor(msg.score);
+    t.appendChild(s);
   }
 }
 
@@ -305,12 +434,15 @@ async function showCall(id) {
   selectedId = id;
   alertEl.classList.remove("on");
   bubbles = new Map();
+  // 呼を切り替えたら状態を持ち越さない
+  maxAnger = null; curAnger = null; curReason = ""; curVoice = null;
   feedEl.innerHTML = "";
   renderList();
   try {
     const rec = await (await fetch(`/api/history/${id}`)).json();
     upsertCall({ ...rec, messages: undefined });
     renderHead(calls.get(id));
+    renderCard(calls.get(id));
     if (!rec.messages?.length) {
       feedEl.innerHTML = `<div class="quiet">この呼にはまだ発話がありません。</div>`;
     } else {
@@ -332,7 +464,10 @@ function handle(msg) {
     }
     case "call_ended": {
       upsertCall(msg);
-      if (msg.contact_id === selectedId) renderHead(calls.get(msg.contact_id));
+      if (msg.contact_id === selectedId) {
+        renderHead(calls.get(msg.contact_id));
+        renderCard(calls.get(msg.contact_id));
+      }
       break;
     }
     case "transcript": {
@@ -351,6 +486,11 @@ function handle(msg) {
       if (msg.contact_id !== selectedId) break;
       applyAnger(msg);
       if (msg.alert) showAlert(msg);
+      break;
+    }
+    case "voice": {
+      if (msg.contact_id !== selectedId) break;
+      applyVoice(msg);
       break;
     }
     case "error": {

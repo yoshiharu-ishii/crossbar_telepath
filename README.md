@@ -30,6 +30,7 @@ SQS経由で知らせる。呼とストリームの対応が確定するので�
 | [docs/architecture.md](docs/architecture.md) | 全体像、通話路とシグナリングの分離、呼のライフサイクル、モジュール構成 |
 | [docs/data-model.md](docs/data-model.md) | 原本と派生、DBスキーマ、録音の置き場、スキーマ変更(Alembic) |
 | [docs/operations.md](docs/operations.md) | 起動・設定・AWS環境の建て方・実架電の確認手順・コスト |
+| [docs/roadmap.md](docs/roadmap.md) | 現在地、1対1を先に固める理由、PH4/PH5に送ったもの(認証・認可・席・多対多)と実測値 |
 
 ## 現状
 

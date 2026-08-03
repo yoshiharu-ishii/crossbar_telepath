@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import json
+
 import logging
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -51,6 +53,9 @@ calls = Table(
     # PH3で埋める。呼の一覧から「揉めた通話」を探せるようにするための列
     Column("max_anger", Integer),
     Column("summary", Text),
+    # 通話カードのJSON。外部システムへの受け渡し口なので、要約だけでなく
+    # 構造化された形のまま残す(summary はその一行目を取り出したもの)
+    Column("card", Text),
 )
 
 utterances = Table(
@@ -74,6 +79,10 @@ utterances = Table(
     # PH3で埋める
     Column("anger_score", Integer),
     Column("anger_reason", Text),
+    # 声のトーンからの判定。テキストと食い違う通話こそが重要な事例になるため、
+    # 上書きせず別の列に持つ
+    Column("voice_score", Integer),
+    Column("voice_tone", Text),
 )
 
 
@@ -128,6 +137,9 @@ def save_record(record: dict) -> None:
                 ended_at=_to_dt(record.get("ended_at")),
                 max_anger=record.get("max_anger"),
                 summary=record.get("summary"),
+                card=json.dumps(record["card"], ensure_ascii=False)
+                if record.get("card")
+                else None,
             )
         )
         rows = [
@@ -141,6 +153,8 @@ def save_record(record: dict) -> None:
                 "audio_end_ms": m.get("audio_end_ms"),
                 "anger_score": m.get("anger_score"),
                 "anger_reason": m.get("anger_reason"),
+                "voice_score": m.get("voice_score"),
+                "voice_tone": m.get("voice_tone"),
             }
             for m in record.get("messages", [])
         ]
@@ -164,6 +178,9 @@ def _message_dict(row) -> dict:
     if row.anger_score is not None:
         msg["anger_score"] = row.anger_score
         msg["anger_reason"] = row.anger_reason
+    if row.voice_score is not None:
+        msg["voice_score"] = row.voice_score
+        msg["voice_tone"] = row.voice_tone
     return msg
 
 
@@ -186,6 +203,7 @@ def load_record(contact_id: str) -> dict | None:
         "ended_at": _to_epoch(call.ended_at),
         "max_anger": call.max_anger,
         "summary": call.summary,
+        "card": json.loads(call.card) if call.card else None,
         "message_count": len(msgs),
         "live": False,
         "messages": [_message_dict(m) for m in msgs],

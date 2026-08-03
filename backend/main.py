@@ -50,16 +50,7 @@ async def lifespan(app: FastAPI):
     global _watcher
     watcher = None
     if WATCH_CALLS:
-        watcher = _watcher = asyncio.create_task(_watch_signaling())
-
-        def _watcher_died(task: asyncio.Task) -> None:
-            if task.cancelled():
-                return
-            exc = task.exception()
-            if exc:
-                log.error("シグナリング監視が停止した。以降の呼は拾えない", exc_info=exc)
-
-        watcher.add_done_callback(_watcher_died)
+        watcher = _watcher = asyncio.create_task(_watch_forever())
     else:
         log.info("WATCH_CALLS=0 のためシグナリング監視はしない(リプレイのみ)")
     yield
@@ -107,30 +98,48 @@ def _start_session(session: CallSession, source) -> None:
     _sessions[session.contact_id] = asyncio.create_task(runner())
 
 
-async def _watch_signaling() -> None:
-    """コールフローからの呼設定を受け取り、呼ごとに受信を始める。
+async def _watch_forever() -> None:
+    """シグナリング監視を、死んでも起こし直しながら回し続ける。
 
-    このタスクが死ぬと呼を一切拾わなくなるので、終了は必ずログに残す。
+    監視が止まる=電話が鳴らなくなる、なので「ログを残して終わり」にしない。
+    かつてMinIOの資格情報事故で監視が静かに死に、実架電を取り逃した。
     """
+    while True:
+        try:
+            await _watch_signaling()
+            log.error("シグナリング監視が終了した — 15秒後に再開する")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("シグナリング監視が落ちた — 15秒後に再開する")
+        await asyncio.sleep(15)
+
+
+async def _watch_signaling() -> None:
+    """コールフローからの呼設定を受け取り、呼ごとに受信を始める。"""
     log.info("シグナリング監視を開始")
     async for ev in signaling.poll_call_events():
-        if not ev.stream_arn:
-            log.warning("StreamARNの無い呼イベントを無視: %s", ev.contact_id)
-            continue
-        log.info(
-            "呼を検出: contact=%s customer=%s fragment=%s",
-            ev.contact_id, ev.customer_number, ev.start_fragment,
-        )
-        session = CallSession(
-            hub,
-            contact_id=ev.contact_id,
-            label=ev.stream_arn.rsplit("/", 2)[-2],
-            customer_number=ev.customer_number,
-            instance_arn=ev.instance_arn,
-            record_audio=True,
-            save_transcript=True,
-        )
-        _start_session(session, sources.stream_from_kvs(ev.stream_arn, ev.start_fragment))
+        # 呼1件の異常でループを殺さない。1呼の失敗は1呼で閉じる
+        try:
+            if not ev.stream_arn:
+                log.warning("StreamARNの無い呼イベントを無視: %s", ev.contact_id)
+                continue
+            log.info(
+                "呼を検出: contact=%s customer=%s fragment=%s",
+                ev.contact_id, ev.customer_number, ev.start_fragment,
+            )
+            session = CallSession(
+                hub,
+                contact_id=ev.contact_id,
+                label=ev.stream_arn.rsplit("/", 2)[-2],
+                customer_number=ev.customer_number,
+                instance_arn=ev.instance_arn,
+                record_audio=True,
+                save_transcript=True,
+            )
+            _start_session(session, sources.stream_from_kvs(ev.stream_arn, ev.start_fragment))
+        except Exception:
+            log.exception("呼イベントの処理に失敗(監視は続行): %r", dict(ev))
 
 
 @app.websocket("/ws")

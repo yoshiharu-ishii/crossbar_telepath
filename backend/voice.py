@@ -32,12 +32,15 @@ from config import (
     VOICE_JUDGE_INTERVAL_SEC,
     VOICE_JUDGE_MODE,
     VOICE_JUDGE_MODEL,
-    VOICE_MIN_SEC,
-    VOICE_MIN_VOICED_SEC,
     VOICE_TRIGGER_SCORE,
-    VOICE_WINDOW_SEC,
     get_api_key,
 )
+
+# 実測で決めた定数(2026-08-03)。設定にしない——「変えられるが変える理由が無い」
+# 項目を.envに並べても選択肢が増えるだけで、値の根拠はここに書いておく方が役に立つ
+VOICE_WINDOW_SEC = 12.0        # 判定に使う直近の秒数。長いと課金増、短いとトーンが読めない
+VOICE_MIN_SEC = 5.0            # これ未満はモデルが「音声が聞こえない」と返すだけで課金される
+VOICE_MIN_VOICED_SEC = 2.0     # 窓は時間で切るので、中身(有声秒数)でも足切りする
 
 log = logging.getLogger(__name__)
 
@@ -150,9 +153,12 @@ async def judge_voice(pcm: np.ndarray) -> dict | None:
             {"role": "system", "content": _SYSTEM},
             {
                 "role": "user",
-                # **音声を先に置き、JSONの指示をユーザー側にも書く。** systemに書くだけだと
-                # モデルが「音声を再生してください」と処理を先送りする応答を返すことが多い
-                # (2026-08-03の実測で gpt-audio が4回中4回とも先送り。この形で3/3成功)
+                # **出力形式の指示をユーザーターンに書く。** systemに書くだけだと
+                # モデルが「音声をお聞かせください」と、音声を添えているのに未受領扱いの
+                # 応答を返す。2026-08-03に変数を分離して実測(gpt-audio、各5回):
+                #   テキスト先・指示なし 0/5 / 音声先・指示なし 0/5
+                #   テキスト先・指示あり 4/5 / 音声先・指示あり 5/5
+                # **順序は効かない。効くのは形式指示の位置。** 音声先は誤差程度の上積み
                 "content": [
                     {
                         "type": "input_audio",

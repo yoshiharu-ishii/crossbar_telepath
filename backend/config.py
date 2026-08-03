@@ -37,8 +37,6 @@ AWS_REGION = os.getenv("AWS_REGION", "ap-northeast-1")
 KVS_STREAM_PREFIX = os.getenv("KVS_STREAM_PREFIX", "crossbar-telepath")
 CALL_EVENTS_QUEUE = os.getenv("CALL_EVENTS_QUEUE", f"{KVS_STREAM_PREFIX}-call-events")
 SQS_WAIT_SECONDS = int(os.getenv("SQS_WAIT_SECONDS", "20"))
-# 取り逃した呼を SearchContacts から復元するときだけ要る(通常運転では未使用)
-CONNECT_INSTANCE_ID = os.getenv("CONNECT_INSTANCE_ID", "")
 
 # ---- 推論エンドポイント -----------------------------------------------
 # OpenAI互換のエンドポイントなら差し替えられる。ただしデータ主権が要件に
@@ -90,13 +88,6 @@ VOICE_JUDGE_MODEL = os.getenv("VOICE_JUDGE_MODEL", "gpt-audio")
 # テキスト判定がこの値に届いたら声を聴きに行く。閾値(70)より低くしないと、
 # 「言葉は丁寧だが声が怒っている」——音声でしか取れない場面——を取り逃す
 VOICE_TRIGGER_SCORE = int(os.getenv("VOICE_TRIGGER_SCORE", "45"))
-# 判定に使う直近の秒数。長いと課金が増え、短いとトーンが読めない
-VOICE_WINDOW_SEC = float(os.getenv("VOICE_WINDOW_SEC", "12"))
-# 実測の下限。4秒未満の音声はモデルが「音声が聞こえない」と返すだけで課金される
-VOICE_MIN_SEC = float(os.getenv("VOICE_MIN_SEC", "5"))
-# 窓のうち実際に声が入っている秒数の下限。相手が黙っている間は無音で埋まるため、
-# 窓の長さだけを見ていると中身が空のまま投げてしまう
-VOICE_MIN_VOICED_SEC = float(os.getenv("VOICE_MIN_VOICED_SEC", "2"))
 
 # 通話カード(切断後に1回だけ)。要約・次アクション・折り返し要否をJSONで出す
 CARD_MODEL = os.getenv("CARD_MODEL", "gpt-4o-mini")

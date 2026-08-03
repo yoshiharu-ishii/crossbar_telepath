@@ -38,8 +38,12 @@ class Resampler:
         self._tail = samples[-1:].copy()
 
         src_x = np.arange(joined.size, dtype=np.float64)
-        # 先頭の持ち越し1サンプル分は出力から捨てるので、その分だけ後ろにずらす
-        out_x = np.arange(1 * _RATIO, joined.size * _RATIO, dtype=np.float64) / _RATIO
+        # 出力位置は 1/3, 2/3, …, n(入力サンプル単位)。持ち越しサンプル(位置0)と
+        # 今回の先頭の**間**から始め、今回の最終サンプルちょうどで終わることで、
+        # 次のチャンクと隙間なく繋がる。以前は 1.0 始まり・n+2/3 終わりで2/3ずれており、
+        # チャンク末尾の2サンプルが最終値に張り付いたうえ境界でジャンプしていた
+        # (20msごとの歪みとしてテストが検出)
+        out_x = np.arange(1, samples.size * _RATIO + 1, dtype=np.float64) / _RATIO
         out = np.interp(out_x, src_x, joined.astype(np.float64))
         return np.rint(out).astype("<i2").tobytes()
 

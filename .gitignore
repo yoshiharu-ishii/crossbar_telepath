@@ -19,3 +19,4 @@ crash.log
 *.local.yml
 tfplan
 infra/.build/
+node_modules/

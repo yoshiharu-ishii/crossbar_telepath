@@ -68,18 +68,17 @@ hub = Hub()
 
 @app.middleware("http")
 async def cache_control(request: Request, call_next):
-    """静的ファイルをキャッシュさせない。
+    """HTMLはキャッシュさせず、ハッシュ付きアセットは長期キャッシュさせる。
 
-    realtime_voiceで踏んだ事故の再発防止: 更新後のHTMLと古いapp.jsの
-    組み合わせをブラウザが作ると、要素IDの不一致でスクリプトが例外死し
-    「画面が反応しない」状態になる(2026-07-26に実際に発生)。
+    かつて「更新後のHTMLと古いapp.js」の組み合わせでスクリプトが例外死する
+    事故を踏んだ(2026-07-26)。Viteはファイル名に内容ハッシュを付けるので、
+    HTMLさえ最新なら参照されるJS/CSSは必ず一致する——罠自体が構造的に消えた。
     """
     response = await call_next(request)
-    if request.url.path == "/":
+    if request.url.path == "/" or request.url.path.endswith("index.html"):
         response.headers["Cache-Control"] = "no-store"
-    elif request.url.path.startswith("/static"):
-        # 毎回サーバーへ再検証させる(未更新なら304で転送なし)
-        response.headers["Cache-Control"] = "no-cache"
+    elif request.url.path.startswith("/assets"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
 
 
@@ -327,4 +326,4 @@ def index() -> FileResponse:
     return FileResponse(FRONTEND_DIR / "index.html")
 
 
-app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
+app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="assets")

@@ -24,7 +24,8 @@ def _bool(name: str, default: bool = False) -> bool:
 
 
 # ---- パスと動作 -------------------------------------------------------
-FRONTEND_DIR = BASE_DIR.parent / "frontend"
+# SPA(Vite)のビルド成果物。開発時はViteのdevサーバー(5173)がAPIを8000へ中継する
+FRONTEND_DIR = BASE_DIR.parent / "frontend" / "dist"
 RECORDINGS_DIR = Path(os.getenv("RECORDINGS_DIR", BASE_DIR.parent / "recordings"))
 CALLS_DIR = RECORDINGS_DIR / "calls"
 

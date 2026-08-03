@@ -20,3 +20,8 @@ crash.log
 tfplan
 infra/.build/
 node_modules/
+frontend/dist/
+# macOS(iCloud同期)が作る衝突コピー。マイグレーションに紛れ込むと
+# alembicのheadが割れて起動不能になる(2026-08-03に実際に発生)
+* 2.*
+*.tsbuildinfo

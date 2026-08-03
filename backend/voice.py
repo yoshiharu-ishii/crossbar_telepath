@@ -38,9 +38,11 @@ from config import (
 
 # 実測で決めた定数(2026-08-03)。設定にしない——「変えられるが変える理由が無い」
 # 項目を.envに並べても選択肢が増えるだけで、値の根拠はここに書いておく方が役に立つ
-VOICE_WINDOW_SEC = 12.0        # 判定に使う直近の秒数。長いと課金増、短いとトーンが読めない
+VOICE_BUFFER_SEC = 30.0        # 相手音声の保持長。発話区間を遡って切り出すための在庫
+VOICE_SPAN_TARGET_SEC = 8.0    # 発話区間を積んで作る判定材料の目標長
+VOICE_FALLBACK_WINDOW_SEC = 12.0  # 区間が取れないときの生窓(従来方式)
 VOICE_MIN_SEC = 5.0            # これ未満はモデルが「音声が聞こえない」と返すだけで課金される
-VOICE_MIN_VOICED_SEC = 2.0     # 窓は時間で切るので、中身(有声秒数)でも足切りする
+VOICE_MIN_VOICED_SEC = 2.0     # 生窓は時間で切るので、中身(有声秒数)でも足切りする
 
 log = logging.getLogger(__name__)
 
@@ -93,44 +95,85 @@ def to_wav(pcm: np.ndarray) -> bytes:
     return buf.getvalue()
 
 
+def voiced_seconds(x: np.ndarray) -> float:
+    """実際に声が入っている秒数。長さではなく中身で足切りするための物差し。"""
+    frame = SOURCE_RATE * 20 // 1000  # 20msごとに見る
+    n = x.size // frame
+    if n == 0:
+        return 0.0
+    f = x[: n * frame].astype(np.float64).reshape(n, frame)
+    rms = np.sqrt((f**2).mean(axis=1)) / 32768
+    with np.errstate(divide="ignore"):
+        db = 20 * np.log10(np.maximum(rms, 1e-9))
+    return float((db > -50).sum()) * frame / SOURCE_RATE
+
+
+def collect_spans(
+    messages: list[dict],
+    target_sec: float = VOICE_SPAN_TARGET_SEC,
+    max_spans: int = 4,
+) -> list[tuple[int, int]]:
+    """判定材料にする発話区間(ms)を、新しい方から目標長ぶん集める。
+
+    VADが返す audio_start_ms/end_ms(頭出し再生と同じ座標)を使う。
+    実時間の窓で切ると無音と複数発話で材料が均されてしまい、calm/loud の
+    対照実験で差が消えた(2026-08-03)。発話そのものを積むことで、
+    「何が判定されたか」が文字起こしと1対1で揃う。
+    """
+    spans: list[tuple[int, int]] = []
+    total = 0.0
+    for m in reversed(messages):
+        if m.get("speaker") != "customer" or not m.get("final"):
+            continue
+        a, b = m.get("audio_start_ms"), m.get("audio_end_ms")
+        if a is None or b is None or b <= a:
+            continue
+        spans.append((int(a), int(b)))
+        total += (b - a) / 1000
+        if total >= target_sec or len(spans) >= max_spans:
+            break
+    spans.reverse()
+    return spans
+
+
 class VoiceBuffer:
-    """相手の音声を直近数秒だけ保持する輪。
+    """相手の音声を直近だけ保持する輪。絶対位置(通話開始からのms)で切り出せる。
 
     通話全体を持つと長時間の呼でメモリを食うし、判定に要るのは直近だけ。
+    音声は途切れず流れてくる(黙っている間も無音が来る)ので、
+    総サンプル数がそのまま通話タイムラインになる。
     """
 
-    def __init__(self, seconds: float = VOICE_WINDOW_SEC) -> None:
+    def __init__(self, seconds: float = VOICE_BUFFER_SEC) -> None:
         self._max = int(SOURCE_RATE * seconds)
         self._buf = np.zeros(0, dtype="<i2")
+        self._total = 0  # これまでに積んだ総サンプル数(絶対位置)
 
     def add(self, pcm: bytes) -> None:
         if not pcm:
             return
-        self._buf = np.concatenate([self._buf, np.frombuffer(pcm, dtype="<i2")])
+        arr = np.frombuffer(pcm, dtype="<i2")
+        self._total += arr.size
+        self._buf = np.concatenate([self._buf, arr])
         if self._buf.size > self._max:
             self._buf = self._buf[-self._max :]
 
-    def take(self) -> np.ndarray:
-        return self._buf.copy()
+    @property
+    def start_sample(self) -> int:
+        """保持している先頭の絶対位置。これより古い区間はもう無い。"""
+        return self._total - self._buf.size
 
-    def voiced_seconds(self) -> float:
-        """窓のうち、実際に声が入っている秒数。
+    def extract_ms(self, start_ms: int, end_ms: int, pad_ms: int = 300) -> np.ndarray:
+        """発話区間を絶対時刻で切り出す(前後に少し余白。頭出し再生と同じ流儀)。"""
+        a = max(int(SOURCE_RATE * (start_ms - pad_ms) / 1000), self.start_sample)
+        b = min(int(SOURCE_RATE * (end_ms + pad_ms) / 1000), self._total)
+        if b <= a:
+            return np.zeros(0, dtype="<i2")
+        off = self.start_sample
+        return self._buf[a - off : b - off].copy()
 
-        窓は時間で切るので、相手が黙っている間(こちらが喋っている間)は無音で埋まる。
-        12秒の窓に声が0.3秒しか無い状態で投げると、モデルは「音声が聞こえない」と
-        返すだけで課金される。**窓の長さではなく中身で足切りする必要がある。**
-        """
-        if self._buf.size == 0:
-            return 0.0
-        frame = SOURCE_RATE * 20 // 1000  # 20msごとに見る
-        n = self._buf.size // frame
-        if n == 0:
-            return 0.0
-        f = self._buf[: n * frame].astype(np.float64).reshape(n, frame)
-        rms = np.sqrt((f**2).mean(axis=1)) / 32768
-        with np.errstate(divide="ignore"):
-            db = 20 * np.log10(np.maximum(rms, 1e-9))
-        return float((db > -50).sum()) * frame / SOURCE_RATE
+    def take_recent(self, seconds: float) -> np.ndarray:
+        return self._buf[-int(SOURCE_RATE * seconds) :].copy()
 
 
 async def judge_voice(pcm: np.ndarray) -> dict | None:
@@ -233,16 +276,36 @@ class VoiceWatcher:
             return False
         return (time.monotonic() - self._last_at) >= VOICE_JUDGE_INTERVAL_SEC
 
-    async def run(self, target: dict) -> None:
+    def _material(self, messages: list[dict]) -> tuple[np.ndarray, str]:
+        """判定材料を作る。第一候補は発話区間の積み上げ、無理なら生窓に落とす。
+
+        実時間の窓は無音と複数発話で材料が均され、対照実験で差が消えた。
+        発話区間なら「何を判定したか」が文字起こしと1対1で揃う。
+        """
+        spans = collect_spans(messages)
+        if spans:
+            parts = [self.buffer.extract_ms(a, b) for a, b in spans]
+            pcm = np.concatenate([x for x in parts if x.size]) if parts else np.zeros(0, dtype="<i2")
+            if pcm.size >= SOURCE_RATE * VOICE_MIN_SEC:
+                return pcm, "spans"
+        # 区間が無い(VADの座標が来ないSTT構成)か短すぎる。従来の生窓で聴く
+        pcm = self.buffer.take_recent(VOICE_FALLBACK_WINDOW_SEC)
+        if voiced_seconds(pcm) < VOICE_MIN_VOICED_SEC:
+            return np.zeros(0, dtype="<i2"), "silent"
+        return pcm, "window"
+
+    async def run(self, messages: list[dict], target: dict) -> None:
         """判定して、対象の発話に結果を書き込みブラウザへ流す。"""
         self._busy = True
         self._last_at = time.monotonic()
         try:
-            if self.buffer.voiced_seconds() < VOICE_MIN_VOICED_SEC:
+            pcm, source = self._material(messages)
+            if pcm.size == 0:
                 return  # 声がほとんど入っていない。投げても拒否されるうえ課金は乗る
-            result = await judge_voice(self.buffer.take())
+            result = await judge_voice(pcm)
             if result is None:
                 return
+            result["source"] = source
 
             target["voice_score"] = result["score"]
             target["voice_tone"] = result["tone"]

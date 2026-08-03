@@ -40,6 +40,40 @@ SCRIPT: list[tuple[str, str, str]] = [
 ]
 
 
+# 声のトーン判定を検証するための対照実験。**台詞は一字一句同じで口調だけ違う**。
+# テキスト判定は同じスコアを出すはずなので、差が付けばそれは声からしか取れない情報。
+_SAME_WORDS = [
+    ("agent", "解析を開始しました。ご用件をお話しください。", "落ち着いた案内の口調で"),
+    ("customer", "先日お願いした件、その後いかがでしょうか。", "{tone}"),
+    ("agent", "確認いたしますので少々お待ちください。", "丁寧な事務的口調で"),
+    ("customer", "もう三回目なんですけど。いつまで待てばいいですか。", "{tone}"),
+    ("agent", "申し訳ございません。", "恐縮した口調で"),
+    ("customer", "そうですか。では、いつ頃になるか教えてください。", "{tone}"),
+]
+
+
+def _same_words(tone: str) -> list[tuple[str, str, str]]:
+    return [(sp, tx, tn.format(tone=tone)) for sp, tx, tn in _SAME_WORDS]
+
+
+SCRIPTS: dict[str, list[tuple[str, str, str]]] = {
+    "angry": SCRIPT,
+    # 丁寧な言葉づかいを、穏やかに言う場合と、静かに怒って言う場合
+    "calm": _same_words("落ち着いた、穏やかで感じの良い口調で"),
+    "cold": _same_words(
+        "言葉は丁寧だが、静かに強い怒りを抑えている口調で。"
+        "声を低く硬くし、語尾を鋭く切り、抑揚を平坦にする"
+    ),
+    # cold は失敗した(音響的に calm と差が出なかった。2026-08-03実測で
+    # 有声率24%・RMS差1dB・F0レンジもほぼ重なる)。TTSは「大声で怒鳴る」は
+    # 演じられるが「静かに抑えた怒り」は描き分けられない。
+    # そこでTTSが確実に描ける対比に変えたのが loud。**台詞は calm と同一**
+    "loud": _same_words(
+        "激昂して怒鳴りつける口調で。大きな声で、語気を荒げ、語一語を強く叩きつける"
+    ),
+}
+
+
 # ---- TTS -----------------------------------------------------------------
 
 
@@ -131,6 +165,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True, help="出力先のMKV")
     ap.add_argument("--gap", type=float, default=1.5, help="発話の間隔(秒)")
+    ap.add_argument("--script", default="angry", choices=list(SCRIPTS),
+                    help="台本。calm/cold は同一台詞で口調だけ変えた対照実験用")
     ap.add_argument("--customer-voice", default="ash")
     ap.add_argument("--agent-voice", default="alloy")
     args = ap.parse_args()
@@ -143,7 +179,7 @@ def main() -> None:
     cursor = 0  # 現在位置(サンプル数)。話者をまたいで時間軸を共有する
     gap = int(RATE * args.gap)
 
-    for speaker, text, tone in SCRIPT:
+    for speaker, text, tone in SCRIPTS[args.script]:
         voice = args.customer_voice if speaker == "customer" else args.agent_voice
         pcm = to_telephone_band(synth(text, tone, voice, key))
         other = "agent" if speaker == "customer" else "customer"

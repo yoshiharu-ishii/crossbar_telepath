@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import time
@@ -226,6 +227,35 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
     session.record.fixed_ended_at = meta.get("ended_at")
     _start_session(session, sources.replay_bytes(data, speed, contact_id))
     return {"status": "started", "contact_id": contact_id, "speed": speed}
+
+
+@app.get("/api/history/{contact_id}/card.json")
+def api_card(contact_id: str) -> Response:
+    """通話カードをJSONで返す。外部システムへの受け渡し口。
+
+    画面で見るだけならhistoryに含まれているが、保存・連携のために
+    ファイルとして落とせる形も用意しておく。
+    """
+    call = hub.get_record(contact_id)
+    rec = call.as_dict() if call is not None else history.load_record(contact_id)
+    if rec is None:
+        raise HTTPException(404, f"呼 {contact_id} の記録がありません")
+    if not rec.get("card"):
+        raise HTTPException(404, "この呼の通話カードはまだありません")
+    body = {
+        "contact_id": contact_id,
+        "customer_number": rec.get("customer_number"),
+        "started_at": rec.get("started_at"),
+        "ended_at": rec.get("ended_at"),
+        "max_anger": rec.get("max_anger"),
+        "max_voice_anger": rec.get("max_voice_anger"),
+        **rec["card"],
+    }
+    return Response(
+        json.dumps(body, ensure_ascii=False, indent=2),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="card-{contact_id}.json"'},
+    )
 
 
 @app.get("/api/recordings/{contact_id}.wav")

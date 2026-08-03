@@ -15,6 +15,7 @@ const statusEl = document.getElementById("status");
 const alertEl = document.getElementById("alert");
 const alertTitleEl = document.getElementById("alert-title");
 const alertReasonEl = document.getElementById("alert-reason");
+const cardEl = document.getElementById("card");
 
 const WHO = { customer: "相手 (FROM_CUSTOMER)", agent: "こちら (TO_CUSTOMER)" };
 const calls = new Map(); // contact_id -> meta
@@ -36,6 +37,7 @@ let bubbles = new Map();
 let maxAnger = null;
 let curAnger = null;
 let curReason = "";
+let curVoice = null;   // {score, tone}
 
 function clock(ts) {
   return ts ? new Date(ts * 1000).toLocaleTimeString("ja-JP", { hour12: false }) : "";
@@ -210,10 +212,63 @@ function renderHead(m) {
     `<div id="sit-top"><span id="sit-label">相手の状態</span>` +
     `<span id="sit-max"></span><span id="sit-score">—</span></div>` +
     `<div id="gauge"><span id="gauge-bar"></span></div>` +
-    `<div id="sit-reason"></div>`;
+    `<div id="sit-reason"></div>` +
+    `<div id="sit-voice" class="hidden"><div class="row2">` +
+    `<span class="lbl">声のトーン</span><span class="val"></span>` +
+    `<span class="gap"></span></div><div class="tone"></div></div>`;
   headEl.appendChild(sit);
   if (m.max_anger != null && (maxAnger == null || m.max_anger > maxAnger)) maxAnger = m.max_anger;
   setSituation(curAnger, curReason);
+}
+
+// 通話カード。切断後に1回だけ作られる対応記録で、JSONで持ち出せる
+function renderCard(m) {
+  const c = m?.card;
+  cardEl.classList.toggle("hidden", !c);
+  if (!c) return;
+  const rows = [];
+  const add = (k, v) => { if (v) rows.push([k, v]); };
+  add("用件", c.topic);
+  add("次アクション", c.next_action);
+  if (c.callback_needed) add("折り返し", c.callback_reason || "要");
+  if (c.unresolved?.length) add("未解決", c.unresolved.join(" / "));
+
+  cardEl.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "head";
+  head.innerHTML = `<h2>通話カード</h2>`;
+  if (c.harassment) {
+    const f = document.createElement("span");
+    f.className = "flag";
+    f.textContent = "カスハラの疑い";
+    head.appendChild(f);
+  }
+  const dl0 = document.createElement("a");
+  dl0.href = `/api/history/${m.contact_id}/card.json`;
+  dl0.textContent = "JSONで保存";
+  head.appendChild(dl0);
+  cardEl.appendChild(head);
+
+  const sum = document.createElement("div");
+  sum.textContent = c.summary || "";
+  sum.style.marginBottom = rows.length ? "8px" : "0";
+  cardEl.appendChild(sum);
+
+  if (rows.length) {
+    const dl = document.createElement("dl");
+    for (const [k, v] of rows) {
+      const dt = document.createElement("dt"); dt.textContent = k;
+      const dd = document.createElement("dd"); dd.textContent = v;
+      dl.append(dt, dd);
+    }
+    cardEl.appendChild(dl);
+  }
+  if (c.harassment && c.harassment_quote) {
+    const q = document.createElement("div");
+    q.className = "quote";
+    q.textContent = c.harassment_quote;   // 記録として使うので要約せず原文のまま
+    cardEl.appendChild(q);
+  }
 }
 
 function addBubble(msg) {
@@ -243,6 +298,9 @@ function applyTranscript(msg) {
     // 保存済みの記録には判定結果が乗っている
     if (msg.anger_score != null) {
       applyAnger({ item_id: msg.item_id, score: msg.anger_score, reason: msg.anger_reason });
+    }
+    if (msg.voice_score != null) {
+      applyVoice({ item_id: msg.item_id, score: msg.voice_score, tone: msg.voice_tone });
     }
   } else {
     text.textContent += msg.delta || "";
@@ -306,6 +364,20 @@ function setSituation(score, reason) {
   val.style.color = score == null ? "var(--muted)" : angerColor(s);
   if (rea) rea.textContent = reason || "";
   if (mx) mx.textContent = maxAnger == null ? "" : `最大 ${maxAnger}`;
+
+  // 声の判定は別枠に出す。テキストと食い違ったときに差を明示する
+  const v = document.getElementById("sit-voice");
+  if (!v) return;
+  v.classList.toggle("hidden", curVoice == null);
+  if (curVoice == null) return;
+  const vv = v.querySelector(".val");
+  vv.textContent = String(curVoice.score);
+  vv.style.color = angerColor(curVoice.score);
+  v.querySelector(".tone").textContent = curVoice.tone || "";
+  // 20点以上開いたら「声にしか出ていない怒り」の可能性が高い
+  const d = score == null ? null : curVoice.score - score;
+  v.querySelector(".gap").textContent =
+    d != null && Math.abs(d) >= 20 ? `テキストと ${d > 0 ? "+" : ""}${d}` : "";
 }
 
 // 判定結果を反映する。スコアの意味は「その発話時点での会話の状態」。
@@ -337,6 +409,21 @@ function applyAnger(msg) {
   }
 }
 
+// 声の判定。テキストの発話に相乗りするが、スコアは混ぜない
+function applyVoice(msg) {
+  curVoice = { score: msg.score, tone: msg.tone };
+  setSituation(curAnger, curReason);
+  const el = bubbles.get(`customer:${msg.item_id}`);
+  const t = el?.querySelector(".time");
+  if (t && !t.dataset.voiced) {
+    t.dataset.voiced = "1";
+    const s = document.createElement("span");
+    s.textContent = ` · 声${msg.score}`;
+    s.style.color = angerColor(msg.score);
+    t.appendChild(s);
+  }
+}
+
 function showAlert(msg) {
   alertTitleEl.textContent = `⚠ 相手が強い怒りを示しています(${msg.score})`;
   alertReasonEl.textContent = msg.reason || "";
@@ -347,13 +434,15 @@ async function showCall(id) {
   selectedId = id;
   alertEl.classList.remove("on");
   bubbles = new Map();
-  maxAnger = null; curAnger = null; curReason = "";  // 呼を切り替えたら状態を持ち越さない
+  // 呼を切り替えたら状態を持ち越さない
+  maxAnger = null; curAnger = null; curReason = ""; curVoice = null;
   feedEl.innerHTML = "";
   renderList();
   try {
     const rec = await (await fetch(`/api/history/${id}`)).json();
     upsertCall({ ...rec, messages: undefined });
     renderHead(calls.get(id));
+    renderCard(calls.get(id));
     if (!rec.messages?.length) {
       feedEl.innerHTML = `<div class="quiet">この呼にはまだ発話がありません。</div>`;
     } else {
@@ -375,7 +464,10 @@ function handle(msg) {
     }
     case "call_ended": {
       upsertCall(msg);
-      if (msg.contact_id === selectedId) renderHead(calls.get(msg.contact_id));
+      if (msg.contact_id === selectedId) {
+        renderHead(calls.get(msg.contact_id));
+        renderCard(calls.get(msg.contact_id));
+      }
       break;
     }
     case "transcript": {
@@ -394,6 +486,11 @@ function handle(msg) {
       if (msg.contact_id !== selectedId) break;
       applyAnger(msg);
       if (msg.alert) showAlert(msg);
+      break;
+    }
+    case "voice": {
+      if (msg.contact_id !== selectedId) break;
+      applyVoice(msg);
       break;
     }
     case "error": {

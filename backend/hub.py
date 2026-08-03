@@ -25,10 +25,12 @@ from pathlib import Path
 
 from fastapi import WebSocket
 
+import card
 import emotion
 import history
 import storage
-from config import MAX_RECENT_CALLS, SPEAKER_BY_TRACK_NAME
+import voice
+from config import CARD_ENABLED, MAX_RECENT_CALLS, SPEAKER_BY_TRACK_NAME
 from mkv import MkvStreamParser
 from transcribe import Transcriber
 
@@ -49,6 +51,14 @@ class CallRecord:
     # 過去の呼を再処理するときは、実際に通話が終わった時刻を保つ
     # (現在時刻で上書きすると通話時間が何日にも化ける)
     fixed_ended_at: float | None = None
+    # 通話カード(切断後に1回だけ生成)。外部システムへの受け渡し口を兼ねる
+    card: dict | None = None
+
+    @property
+    def max_voice_anger(self) -> int | None:
+        """声のトーンから見た最大値。テキストと別に持つ(食い違いに意味があるため)。"""
+        scores = [m["voice_score"] for m in self.messages if m.get("voice_score") is not None]
+        return max(scores) if scores else None
 
     @property
     def max_anger(self) -> int | None:
@@ -66,6 +76,9 @@ class CallRecord:
             "ended_at": self.ended_at,
             "message_count": len(self.messages),
             "max_anger": self.max_anger,
+            "max_voice_anger": self.max_voice_anger,
+            "summary": (self.card or {}).get("summary"),
+            "card": self.card,
             "has_recording": storage.has_recording(self.contact_id),
             "live": self.ended_at is None,
         }
@@ -167,6 +180,7 @@ class CallSession:
         self._transcribers: dict[str, Transcriber] = {}
         # _emit を渡す。contact_id はそこで必ず添えられる
         self._anger = emotion.AngerWatcher(contact_id, self._emit)
+        self._voice = voice.VoiceWatcher(contact_id, self._emit)
         self._judging: set[asyncio.Task] = set()
 
     async def run(self, source: AsyncIterator[bytes]) -> None:
@@ -206,6 +220,8 @@ class CallSession:
             # 判定の結果を取りこぼさずに記録へ残す
             if self._judging:
                 await asyncio.gather(*self._judging, return_exceptions=True)
+            if CARD_ENABLED:
+                self.record.card = await card.make_card(self.record.messages)
             await self.hub.call_ended(self.contact_id, persist=self.save_transcript)
             log.info("call ended: %s", self.contact_id)
 
@@ -214,11 +230,24 @@ class CallSession:
         await self.hub.broadcast(msg)
         # 文字起こしの流れを止めないよう、判定は別タスクで走らせる
         if msg.get("type") == "transcript" and self._anger.should_judge(msg):
-            task = asyncio.create_task(
-                self._anger.run(self.record.messages, msg)
-            )
-            self._judging.add(task)
-            task.add_done_callback(self._judging.discard)
+            self._spawn(self._anger.run(self.record.messages, msg))
+        # テキストが高いときだけ声を聴く。判定対象の発話に結果を相乗りさせる
+        if msg.get("type") == "emotion" and self._voice.should_judge(msg.get("score", 0)):
+            target = self._find_message(msg.get("item_id"))
+            if target is not None:
+                self._spawn(self._voice.run(target))
+
+    def _spawn(self, coro) -> None:
+        """判定は別タスクで走らせる。文字起こしの流れを止めないため。"""
+        task = asyncio.create_task(coro)
+        self._judging.add(task)
+        task.add_done_callback(self._judging.discard)
+
+    def _find_message(self, item_id: str | None) -> dict | None:
+        for m in reversed(self.record.messages):
+            if m.get("item_id") == item_id:
+                return m
+        return None
 
     async def _dispatch(self, block) -> None:
         track_name = self._parser.track_names.get(block.track)
@@ -226,6 +255,8 @@ class CallSession:
         if speaker is None:
             log.warning("unknown track %s (%s), skipped", block.track, track_name)
             return
+        if speaker == "customer" and self._voice.enabled:
+            self._voice.buffer.add(block.pcm)
         tr = self._transcribers.get(speaker)
         if tr is None:
             tr = Transcriber(speaker, self._emit)

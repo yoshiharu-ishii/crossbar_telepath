@@ -135,6 +135,34 @@
   #gauge-bar { height: 100%; width: 0; background: var(--live); transition: width .4s, background .4s; }
   #sit-reason { font-size: 12px; color: var(--fg); line-height: 1.45; }
   #sit-reason:empty::before { content: "判定待ち"; color: var(--muted); }
+  /* 声のトーン判定。テキストと食い違うことに意味があるので、混ぜずに並べる */
+  #sit-voice { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 11px; }
+  #sit-voice.hidden { display: none; }
+  #sit-voice .row2 { display: flex; align-items: baseline; gap: 6px; }
+  #sit-voice .lbl { color: var(--muted); }
+  #sit-voice .val { font-family: ui-monospace, monospace; font-weight: 700; font-size: 14px; }
+  #sit-voice .gap { margin-left: auto; color: var(--customer); font-weight: 600; }
+  #sit-voice .tone { color: var(--fg); line-height: 1.45; margin-top: 2px; }
+  /* 通話カード。切断後に出る対応記録 */
+  #card {
+    margin: 0 20px 16px; padding: 12px 16px; border: 1px solid var(--line);
+    border-radius: 10px; background: var(--panel); font-size: 13px;
+  }
+  #card.hidden { display: none; }
+  #card h2 { font-size: 12px; color: var(--muted); margin: 0 0 8px; font-weight: 600; }
+  #card dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; margin: 0; }
+  #card dt { color: var(--muted); font-size: 12px; }
+  #card dd { margin: 0; }
+  #card .flag {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    background: var(--customer-bg); color: var(--customer); border: 1px solid var(--customer);
+  }
+  #card .quote {
+    margin-top: 2px; padding-left: 10px; border-left: 3px solid var(--customer);
+    color: var(--fg);
+  }
+  #card .head { display: flex; align-items: baseline; gap: 10px; }
+  #card .head a { margin-left: auto; font-size: 12px; color: var(--accent); }
   /* 閾値を超えたときの警告帯 */
   #alert {
     display: none; padding: 10px 20px; background: #b3261e; color: #fff;
@@ -168,6 +196,7 @@
   <main>
     <div id="call-head"><span class="quiet" style="padding:0">呼を選択してください</span></div>
     <div id="alert"><strong id="alert-title"></strong><div class="reason" id="alert-reason"></div></div>
+    <div id="card" class="hidden"></div>
     <div id="feed"><div class="quiet">左の履歴から呼を選ぶと、ここに文字起こしが出ます。</div></div>
   </main>
 </div>

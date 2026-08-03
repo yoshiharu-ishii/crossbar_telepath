@@ -80,3 +80,22 @@ async def test_make_card_empty_call_returns_none():
     """発話ゼロの呼ではAPIを呼ばずにNoneを返すこと(無駄な課金の防止)。"""
     assert await card.make_card([]) is None
     assert await card.make_card([{"speaker": "customer", "text": "", "final": True}]) is None
+
+
+# ---- 融合値: 呼の最大怒り度はテキストと声の高い方 ----
+
+
+def test_max_anger_fuses_text_and_voice():
+    """声がテキストを先行する実測(2026-08-03)を踏まえ、高い方を採ること。"""
+    from hub import CallRecord
+
+    r = CallRecord(contact_id="c1", label="t")
+    r.messages = [
+        {"speaker": "customer", "final": True, "anger_score": 45, "voice_score": 78},
+        {"speaker": "customer", "final": True, "anger_score": 60},
+        {"speaker": "customer", "final": True},  # 未判定は無視
+    ]
+    assert r.max_anger == 78  # テキスト最大60ではなく、声の78
+
+    empty = CallRecord(contact_id="c2", label="t")
+    assert empty.max_anger is None

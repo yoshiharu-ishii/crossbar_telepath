@@ -26,6 +26,7 @@ import httpx
 import numpy as np
 
 from config import (
+    ANGER_THRESHOLD,
     CHAT_COMPLETIONS_URL,
     SAMPLE_WIDTH,
     SOURCE_RATE,
@@ -243,6 +244,9 @@ async def judge_voice(pcm: np.ndarray) -> dict | None:
         "score": score,
         "tone": (result.get("tone") or "").strip(),
         "seconds": round(pcm.size / SOURCE_RATE, 1),
+        # 声だけで閾値を超えたらアラート。実測で声はテキストを先行するため、
+        # テキスト側の発火を待つと検知が2発話ぶん遅れる
+        "alert": score >= ANGER_THRESHOLD,
     }
 
 

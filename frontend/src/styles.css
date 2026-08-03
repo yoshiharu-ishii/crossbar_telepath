@@ -1,0 +1,70 @@
+/* Bootstrapの上に載せる、このアプリ固有の見た目。
+   吹き出し・怒りの段階色・ゲージはドメイン固有なので自前で持つ */
+
+html, body, #root { height: 100%; }
+body { overflow: hidden; }
+
+.layout { display: flex; height: calc(100% - 57px); }
+.sidebar { width: 320px; flex: none; overflow-y: auto; }
+.main-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.feed { flex: 1; overflow-y: auto; }
+
+/* 吹き出し。尻尾は45度回した正方形で、background/border継承で色分けに追従する */
+.bubble {
+  position: relative; max-width: 72%; padding: 8px 14px;
+  border-radius: 16px; border: 1px solid var(--bs-border-color);
+  background: var(--bs-body-bg);
+}
+.row-msg { display: flex; margin: 10px 0; }
+.row-msg.agent { justify-content: flex-end; }
+.row-msg.customer .bubble { background: var(--ct-customer-bg); }
+.row-msg.agent .bubble { background: var(--ct-agent-bg); }
+.bubble::after {
+  content: ""; position: absolute; width: 11px; height: 11px; bottom: 9px;
+  background: inherit; border: inherit; transform: rotate(45deg);
+}
+.row-msg.customer .bubble::after { left: -6px; border-width: 0 0 1px 1px; }
+.row-msg.agent .bubble::after { right: -6px; border-width: 1px 1px 0 0; }
+
+.who { font-size: 11px; font-weight: 600; margin-bottom: 2px; }
+.row-msg.customer .who { color: var(--ct-customer); }
+.row-msg.agent .who { color: var(--ct-agent); }
+.msg-text { white-space: pre-wrap; word-break: break-word; }
+.bubble.pending .msg-text { color: var(--bs-secondary-color); }
+.bubble.pending .msg-text::after { content: "▌"; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.msg-time { font-size: 11px; color: var(--bs-secondary-color); margin-top: 2px;
+  font-family: var(--bs-font-monospace); }
+
+/* 怒りの段階(customer側だけ) */
+.row-msg.customer .bubble.a1 { background: var(--ct-a1-bg); border-color: var(--ct-a1-bd); }
+.row-msg.customer .bubble.a2 { background: var(--ct-a2-bg); border-color: var(--ct-a2-bd); }
+.row-msg.customer .bubble.a3 { background: var(--ct-a3-bg); border-color: var(--ct-a3-bd); }
+
+:root, [data-bs-theme="light"] {
+  --ct-customer: #b3261e; --ct-customer-bg: #fdecea;
+  --ct-agent: #0f6e56; --ct-agent-bg: #e6f4ef;
+  --ct-a1-bg: #fff6e5; --ct-a1-bd: #f0c274;
+  --ct-a2-bg: #ffe9e0; --ct-a2-bd: #ef9a72;
+  --ct-a3-bg: #ffdcd6; --ct-a3-bd: #e2564a;
+}
+[data-bs-theme="dark"] {
+  --ct-customer: #f09595; --ct-customer-bg: #3a2020;
+  --ct-agent: #7fd0b4; --ct-agent-bg: #16302a;
+  --ct-a1-bg: #3a3018; --ct-a1-bd: #7a6128;
+  --ct-a2-bg: #43261a; --ct-a2-bd: #8a4a2c;
+  --ct-a3-bg: #4d201c; --ct-a3-bd: #a3392f;
+}
+
+/* 状況パネルのゲージ */
+.gauge { height: 8px; border-radius: 4px; background: var(--bs-border-color); overflow: hidden; }
+.gauge-bar { height: 100%; width: 0; transition: width .4s, background .4s; }
+
+/* 履歴 */
+.call-item { cursor: pointer; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bs-secondary-color);
+  flex: none; display: inline-block; }
+.dot.live { background: #2e9e5b; box-shadow: 0 0 0 3px rgba(46,158,91,.2); }
+
+/* カスハラ引用 */
+.quote { padding-left: 10px; border-left: 3px solid var(--ct-customer); }

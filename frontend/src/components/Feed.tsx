@@ -55,10 +55,14 @@ function Bubble({ m, meta }: { m: Message; meta: CallMeta }) {
 
 export function Feed({ messages, meta }: { messages: Message[]; meta: CallMeta }) {
   const ref = useRef<HTMLDivElement>(null);
+  // 履歴を開いたときは先頭から読む。呼が切り替わった瞬間に一度だけ頭出しする
   useEffect(() => {
-    // 新しい発話が来たら追いかける(ライブ視聴の既定動作)
-    ref.current?.scrollTo({ top: ref.current.scrollHeight });
-  }, [messages]);
+    if (!meta.live) ref.current?.scrollTo({ top: 0 });
+  }, [meta.contact_id, meta.live]);
+  // ライブ中だけ、新しい発話に追従して末尾へ流す
+  useEffect(() => {
+    if (meta.live) ref.current?.scrollTo({ top: ref.current.scrollHeight });
+  }, [messages, meta.live]);
   return (
     <div className="feed px-3 py-2" ref={ref}>
       {messages.length === 0 ? (

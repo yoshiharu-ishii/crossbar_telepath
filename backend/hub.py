@@ -235,7 +235,7 @@ class CallSession:
         if msg.get("type") == "emotion" and self._voice.should_judge(msg.get("score", 0)):
             target = self._find_message(msg.get("item_id"))
             if target is not None:
-                self._spawn(self._voice.run(target))
+                self._spawn(self._voice.run(self.record.messages, target))
 
     def _spawn(self, coro) -> None:
         """判定は別タスクで走らせる。文字起こしの流れを止めないため。"""

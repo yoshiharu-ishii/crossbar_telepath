@@ -153,6 +153,11 @@ def test_claim_rejects_ended_call(client, live_call):
     assert r.status_code == 404
 
 
-def test_config_exposes_dev_tools_flag(client):
-    # 認証有効(本番相当)では開発ツールは既定で隠れる
+def test_config_exposes_dev_tools_flag(client, monkeypatch):
+    """設定値がそのまま公開設定に出ること(既定値の導出はconfig.pyの責務)。"""
+    import config
+
+    monkeypatch.setattr(config, "DEV_TOOLS", False)
     assert client.get("/api/auth/config").json()["dev_tools"] is False
+    monkeypatch.setattr(config, "DEV_TOOLS", True)
+    assert client.get("/api/auth/config").json()["dev_tools"] is True

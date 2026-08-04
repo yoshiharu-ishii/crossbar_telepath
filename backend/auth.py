@@ -102,11 +102,12 @@ def verify_ws_token(token: str | None) -> dict | None:
 
 def public_config() -> dict:
     """ログイン画面が使う公開設定(シークレットは含まない)。"""
-    from config import COGNITO_REGION, COGNITO_USER_POOL_ID
+    from config import COGNITO_REGION, COGNITO_USER_POOL_ID, DEV_TOOLS
 
     return {
         "enabled": AUTH_ENABLED,
         "region": COGNITO_REGION,
         "user_pool_id": COGNITO_USER_POOL_ID,
         "client_id": COGNITO_CLIENT_ID,
+        "dev_tools": DEV_TOOLS,
     }

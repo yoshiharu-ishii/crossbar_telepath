@@ -237,6 +237,11 @@ def list_records() -> list[dict]:
             "ended_at": _to_epoch(r.ended_at),
             "max_anger": r.max_anger,
             "message_count": r.message_count,
+            # 会話一覧(明細)が使う列。詳細APIとメタの形を揃えておかないと、
+            # 一覧だけ「カスハラ—/概要空」になる(2026-08-04に実際に発生)
+            "summary": r.summary,
+            "owner_email": r.owner_email,
+            "card": json.loads(r.card) if r.card else None,
             "live": False,
         }
         for r in rows

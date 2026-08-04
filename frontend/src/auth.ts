@@ -16,6 +16,7 @@ export interface AuthConfig {
   region: string;
   user_pool_id: string;
   client_id: string;
+  dev_tools?: boolean;
 }
 
 export type LoginResult =

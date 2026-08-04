@@ -151,3 +151,8 @@ def test_claim_rejects_ended_call(client, live_call):
     token = make_token()
     r = client.post("/api/calls/live-1/claim", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 404
+
+
+def test_config_exposes_dev_tools_flag(client):
+    # 認証有効(本番相当)では開発ツールは既定で隠れる
+    assert client.get("/api/auth/config").json()["dev_tools"] is False

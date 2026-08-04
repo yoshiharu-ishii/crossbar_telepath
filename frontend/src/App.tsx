@@ -13,9 +13,11 @@ import { Feed } from "./components/Feed";
 export default function App({
   identity,
   onLogout,
+  devTools = true, // 単体テスト・AuthGate未経由(素の開発)では見せる
 }: {
   identity?: { email: string; role: "sv" | "operator" } | null;
   onLogout?: () => void;
+  devTools?: boolean;
 } = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [files, setFiles] = useState<RecordingFile[]>([]);
@@ -114,6 +116,7 @@ export default function App({
       <div className="layout flex-grow-1">
         <Menu
           state={state}
+          devTools={devTools}
           liveCount={[...state.calls.values()].filter((c) => c.live).length}
           onSelect={(view) => dispatch({ type: "set_view", view })}
           onGoLive={() => {

@@ -36,6 +36,20 @@ function mockApi(extra: Record<string, unknown> = {}) {
 
 beforeEach(() => vi.unstubAllGlobals());
 
+describe("開発ツールの表示制御", () => {
+  it("本番相当(devTools=false)では録音ファイルメニューが隠れる", async () => {
+    mockApi();
+    render(<App devTools={false} />);
+    await screen.findByTestId("menu-dashboard");
+    expect(screen.queryByTestId("menu-files")).not.toBeInTheDocument();
+  });
+  it("開発時(devTools=true)は録音ファイルメニューが出る", async () => {
+    mockApi();
+    render(<App devTools={true} />);
+    expect(await screen.findByTestId("menu-files")).toBeInTheDocument();
+  });
+});
+
 describe("監視卓", () => {
   it("既定画面が監視卓で、通話中は怒り順に並ぶ", async () => {
     mockApi();

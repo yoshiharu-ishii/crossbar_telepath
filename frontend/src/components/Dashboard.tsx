@@ -1,5 +1,25 @@
+import { useEffect, useState } from "react";
 import type { CallMeta } from "../types";
 import { angerColor, clock, day, shortId } from "../anger";
+
+/** 通話時間(秒)。通話中は現在時刻までの経過。 */
+function durationSec(c: CallMeta, nowSec: number): number | null {
+  if (!c.started_at) return null;
+  const end = c.live ? nowSec : c.ended_at;
+  if (!end || end < c.started_at) return null;
+  return end - c.started_at;
+}
+
+function fmtDur(sec: number | null): string {
+  if (sec == null) return "—";
+  const s = Math.floor(sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+    : `${m}:${String(r).padStart(2, "0")}`;
+}
 
 /** 会話一覧(SVビュー)。全呼を明細テーブルで一覧する。
     通話中を上に**怒り順**で置く——荒れている呼を探す作業を人に残さない。 */
@@ -9,6 +29,15 @@ export function Dashboard(props: {
   onOpen: (id: string) => void;
   onClaim: (id: string) => void;
 }) {
+  // 通話中の経過時間と累計を動かすための時計(ライブ呼があるときだけ刻む)
+  const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  const hasLive = props.calls.some((c) => c.live);
+  useEffect(() => {
+    if (!hasLive) return;
+    const t = setInterval(() => setNowSec(Date.now() / 1000), 1000);
+    return () => clearInterval(t);
+  }, [hasLive]);
+
   const rows = [
     ...props.calls
       .filter((c) => c.live)
@@ -18,10 +47,13 @@ export function Dashboard(props: {
       .sort((a, b) => (b.started_at || 0) - (a.started_at || 0)),
   ];
 
+  const totalSec = rows.reduce((acc, c) => acc + (durationSec(c, nowSec) ?? 0), 0);
+
   return (
     <div className="feed px-4 py-3">
       <div className="text-secondary small fw-semibold mb-2">
         会話一覧 — 通話中 {rows.filter((c) => c.live).length} / 全 {rows.length} 件
+        <span className="ms-3">累計通話時間 <span className="font-monospace">{fmtDur(totalSec)}</span></span>
       </div>
       <table className="table table-hover align-middle bg-body rounded overflow-hidden shadow-sm mb-0">
         <thead>
@@ -30,8 +62,10 @@ export function Dashboard(props: {
             <th style={{ width: 110 }}>Call ID</th>
             <th style={{ width: 76 }}>状態</th>
             <th style={{ width: 120 }}>担当</th>
-            <th style={{ width: 86 }}>開始</th>
-            <th style={{ width: 86 }}>終了</th>
+            <th style={{ width: 64 }}>日付</th>
+            <th style={{ width: 78 }}>開始</th>
+            <th style={{ width: 78 }}>終了</th>
+            <th style={{ width: 70 }}>時間</th>
             <th style={{ width: 150 }}>怒り</th>
             <th style={{ width: 84 }}>カスハラ</th>
             <th>一言概要</th>
@@ -40,13 +74,13 @@ export function Dashboard(props: {
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={9} className="text-center text-secondary small py-4">
+              <td colSpan={11} className="text-center text-secondary small py-4">
                 まだ呼がありません。
               </td>
             </tr>
           )}
           {rows.map((c, i) => (
-            <Row key={c.contact_id} c={c} no={i + 1} {...props} />
+            <Row key={c.contact_id} c={c} no={i + 1} nowSec={nowSec} {...props} />
           ))}
         </tbody>
       </table>
@@ -54,9 +88,10 @@ export function Dashboard(props: {
   );
 }
 
-function Row({ c, no, myEmail, onOpen, onClaim }: {
+function Row({ c, no, nowSec, myEmail, onOpen, onClaim }: {
   c: CallMeta;
   no: number;
+  nowSec: number;
   myEmail?: string;
   onOpen: (id: string) => void;
   onClaim: (id: string) => void;
@@ -87,7 +122,7 @@ function Row({ c, no, myEmail, onOpen, onClaim }: {
           </span>
         ) : c.live ? (
           <button
-            className="btn btn-sm btn-outline-primary py-0"
+            className="btn btn-sm btn-outline-primary py-0 text-nowrap"
             style={{ fontSize: 12 }}
             onClick={() => onClaim(c.contact_id)}
           >
@@ -97,12 +132,13 @@ function Row({ c, no, myEmail, onOpen, onClaim }: {
           <span className="text-secondary small">—</span>
         )}
       </td>
-      <td className="small font-monospace">
-        <div className="text-secondary" style={{ fontSize: 10 }}>{day(c.started_at)}</div>
-        {clock(c.started_at)}
-      </td>
+      <td className="small font-monospace text-secondary">{day(c.started_at)}</td>
+      <td className="small font-monospace">{clock(c.started_at)}</td>
       <td className="small font-monospace">
         {c.live ? <span className="text-success">—</span> : clock(c.ended_at)}
+      </td>
+      <td className={`small font-monospace ${c.live ? "text-success" : ""}`}>
+        {fmtDur(durationSec(c, nowSec))}
       </td>
       <td>
         <div className="d-flex align-items-center gap-2">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { initialState, reducer } from "./store";
 import { apiFetch, wsUrl } from "./api";
+import { alertBeep } from "./sound";
 import type { CallRecord, RecordingFile, WsEvent } from "./types";
 import { Menu } from "./components/Menu";
 import { Dashboard } from "./components/Dashboard";
@@ -95,6 +96,13 @@ export default function App({
   }, [state.calls, state.mode, state.selectedId, openCall]);
 
   const selected = state.selectedId ? state.calls.get(state.selectedId) : undefined;
+  const isOperator = identity?.role === "operator";
+
+  // アラート音はSV(監視卓)だけ。応対者は通話の中にいる本人であり、
+  // 相手の怒りを一番よく知っている——音は集中を奪うだけ(docs/roadmap.md 3.3)
+  useEffect(() => {
+    if (state.alert && !isOperator) alertBeep();
+  }, [state.alert, isOperator]);
 
   return (
     <div className="d-flex flex-column vh-100">
@@ -175,14 +183,16 @@ export default function App({
                 <CallHeader
                   meta={selected}
                   situation={state.situation}
+                  canReprocess={!isOperator}
                   dispatchStatus={(s) => dispatch({ type: "ws_status", status: s })}
                   onPlayhead={setPlayhead}
                 />
                 {state.alert && <AlertBanner alert={state.alert} />}
                 <Feed messages={state.messages} meta={selected} playhead={playhead}>
                   {/* カードはスクロール領域の中に置く。固定領域に置くと、狭い画面で
-                      ヘッダ+カードがフィードを1pxまで潰す(2026-08-04に実際に発生) */}
-                  {!selected.live && selected.card && <CardPanel meta={selected} />}
+                      ヘッダ+カードがフィードを1pxまで潰す(2026-08-04に実際に発生)。
+                      応対者には出さない——「後」の記録・評価はSVのもの(roadmap 3.3) */}
+                  {!selected.live && selected.card && !isOperator && <CardPanel meta={selected} />}
                 </Feed>
               </>
             ) : (

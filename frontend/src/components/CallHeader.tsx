@@ -54,6 +54,7 @@ function SituationPanel({ s }: { s: Situation }) {
 export function CallHeader(props: {
   meta: CallMeta;
   situation: Situation;
+  canReprocess?: boolean; // 再文字起こしは監視卓(SV)の操作
   dispatchStatus: (s: string) => void;
   onPlayhead: (ms: number | null) => void;
 }) {
@@ -84,6 +85,7 @@ export function CallHeader(props: {
               onPause={() => props.onPlayhead(null)}
               onEnded={() => props.onPlayhead(null)}
             />
+            {props.canReprocess !== false && (
             <button
               className="btn btn-sm btn-outline-secondary text-nowrap flex-shrink-0"
               disabled={busy}
@@ -103,6 +105,7 @@ export function CallHeader(props: {
             >
               再文字起こし
             </button>
+            )}
           </div>
         )}
       </div>

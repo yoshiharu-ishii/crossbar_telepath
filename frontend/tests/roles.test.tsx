@@ -63,6 +63,28 @@ describe("応対者ビュー", () => {
   });
 });
 
+describe("録音一覧の失敗耐性", () => {
+  it("recording-filesが403でも画面が死なない(白画面バグの回帰)", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const path = String(url);
+      if (path.includes("recording-files")) {
+        return { ok: false, json: async () => ({ detail: "開発ツールは監視卓(SV)の操作です" }) };
+      }
+      return { ok: true, json: async () => [] };
+    }));
+    render(<App devTools={true} />);
+    await userEvent.click(await screen.findByTestId("menu-files"));
+    // 配列でないレスポンスを握っても、空の一覧として表示される
+    expect(await screen.findByText("ファイルがありません。")).toBeInTheDocument();
+  });
+
+  it("応対者にはDEV_TOOLSが有効でも録音メニューを見せない", async () => {
+    render(<App devTools={true} identity={{ email: "op@example.com", role: "operator" }} />);
+    await screen.findByTestId("menu-dashboard");
+    expect(screen.queryByTestId("menu-files")).not.toBeInTheDocument();
+  });
+});
+
 describe("SVビュー", () => {
   it("カード・再文字起こしが出て、アラートで音が鳴る", async () => {
     render(<App identity={{ email: "sv@example.com", role: "sv" }} />);

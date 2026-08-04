@@ -49,7 +49,10 @@ export default function App({
         dispatch({ type: "ws_status", status: "履歴の取得に失敗" });
       }
       try {
-        setFiles(await (await apiFetch("/api/recording-files")).json());
+        const res = await apiFetch("/api/recording-files");
+        const data = res.ok ? await res.json() : null;
+        // 403等のエラーJSON(オブジェクト)を入れると files.map で画面が死ぬ
+        if (Array.isArray(data)) setFiles(data);
       } catch {
         /* 開発用の一覧なので無くても本体は動く */
       }
@@ -95,8 +98,8 @@ export default function App({
     if (active) void openCall(active.contact_id, "live");
   }, [state.calls, state.mode, state.selectedId, openCall]);
 
-  const selected = state.selectedId ? state.calls.get(state.selectedId) : undefined;
   const isOperator = identity?.role === "operator";
+  const selected = state.selectedId ? state.calls.get(state.selectedId) : undefined;
 
   // アラート音はSV(監視卓)だけ。応対者は通話の中にいる本人であり、
   // 相手の怒りを一番よく知っている——音は集中を奪うだけ(docs/roadmap.md 3.3)
@@ -124,7 +127,7 @@ export default function App({
       <div className="layout flex-grow-1">
         <Menu
           state={state}
-          devTools={devTools}
+          devTools={devTools && !isOperator}
           liveCount={[...state.calls.values()].filter((c) => c.live).length}
           onSelect={(view) => dispatch({ type: "set_view", view })}
           onGoLive={() => {

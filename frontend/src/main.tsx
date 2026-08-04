@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "./styles.css";
 import { AuthGate } from "./AuthGate";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 // Bootstrapのカラーモードを、OSのライト/ダーク設定に追従させる
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -13,6 +14,8 @@ mq.addEventListener("change", applyTheme);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <AuthGate />
+    <ErrorBoundary>
+      <AuthGate />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

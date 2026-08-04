@@ -187,6 +187,18 @@ aws connect search-contacts --instance-id <ID> \
 
 合成通話を流さなければ、これは実架電で怒鳴られたときに初めて分かる類のバグだった。
 
+### 電話番号のクォータは「解約後も180日間」消費され続ける
+
+Connectの番号クォータ(Phone numbers per instance、既定5)は、**releaseした番号も
+180日間カウントし続ける**。apply→検証→destroyを繰り返す本プロジェクトの工法では、
+サイクルごとに枠を1つ(取得失敗のリトライでさらに)恒久消費し、2026-08-04に
+番号ゼロなのに「allowed limit exceeded」で取得不能になった。
+
+対処: Service Quotas で L-8F812903 の引き上げを申請する(5→15を申請済み)。
+また、**取得失敗のリトライも枠を食う**ので、`Phone number not available` の競合時に
+無闇に連打しない。長期的には「番号を保持し続ける(日額を払う)」か
+「クォータを厚くして使い捨てる」かの選択になる。
+
 ### MinIOの資格情報を `AWS_ACCESS_KEY_ID` に置いてはいけない
 
 boto3の `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` は**全クライアントに効く**。

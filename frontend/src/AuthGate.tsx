@@ -9,6 +9,7 @@ type Phase = "loading" | "login" | "ready";
 /** 認証の門番。認証無効(開発・CI)なら素通しでAppを出す。 */
 export function AuthGate() {
   const [phase, setPhase] = useState<Phase>("loading");
+  const [devTools, setDevTools] = useState(false);
   const [who, setWho] = useState<{ email: string; role: "sv" | "operator" } | null>(null);
 
   const enter = async () => {
@@ -26,6 +27,7 @@ export function AuthGate() {
       try {
         const cfg = await fetchAuthConfig();
         setAuthEnabled(cfg.enabled);
+        setDevTools(cfg.dev_tools ?? !cfg.enabled);
         if (!cfg.enabled) setPhase("ready");
         else await enter();
       } catch {
@@ -46,6 +48,7 @@ export function AuthGate() {
   if (phase === "login") return <Login onLoggedIn={() => void enter()} />;
   return (
     <App
+      devTools={devTools}
       identity={who}
       onLogout={() => {
         logout();

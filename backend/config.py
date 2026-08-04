@@ -102,6 +102,9 @@ COGNITO_REGION = os.getenv("COGNITO_REGION", AWS_REGION)
 COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "")
 COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID", "")
 COGNITO_ISSUER = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
+# 開発ツール(録音ファイルのリプレイ等)を画面に出すか。
+# 既定は「認証が無効なら出す」=ローカル開発では見え、本番相当では隠れる
+DEV_TOOLS = _bool("DEV_TOOLS", not AUTH_ENABLED)
 
 # ---- 永続化(PH3) ----------------------------------------------------
 # 空ならファイル(recordings/calls/*.json)にフォールバックする

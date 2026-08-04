@@ -53,6 +53,9 @@ class CallRecord:
     fixed_ended_at: float | None = None
     # 通話カード(切断後に1回だけ生成)。外部システムへの受け渡し口を兼ねる
     card: dict | None = None
+    # 担当者(挙手方式)。割り当ての正本はここ=自前。将来Connectの
+    # エージェントイベントに差し替えても、この欄の意味は変わらない
+    owner_email: str | None = None
 
     @property
     def max_voice_anger(self) -> int | None:
@@ -85,6 +88,7 @@ class CallRecord:
             "message_count": len(self.messages),
             "max_anger": self.max_anger,
             "max_voice_anger": self.max_voice_anger,
+            "owner_email": self.owner_email,
             "summary": (self.card or {}).get("summary"),
             "card": self.card,
             "has_recording": storage.has_recording(self.contact_id),

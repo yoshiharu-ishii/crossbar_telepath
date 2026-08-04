@@ -99,3 +99,16 @@ def test_max_anger_fuses_text_and_voice():
 
     empty = CallRecord(contact_id="c2", label="t")
     assert empty.max_anger is None
+
+
+def test_list_records_includes_dashboard_fields(file_backend):
+    """一覧と詳細でメタの形を揃える(会話一覧の明細が使う)。"""
+    r = _record()
+    r["summary"] = "揉めた通話"
+    r["owner_email"] = "op@example.com"
+    r["card"] = {"summary": "揉めた通話", "harassment": True}
+    history.save_record(r)
+    got = history.list_records()[0]
+    assert got["summary"] == "揉めた通話"
+    assert got["owner_email"] == "op@example.com"
+    assert got["card"]["harassment"] is True

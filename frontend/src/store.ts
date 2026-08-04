@@ -26,6 +26,8 @@ export function fusedScore(s: Situation): number | null {
 
 export interface State {
   calls: Map<string, CallMeta>;
+  /** 画面。dashboard=監視卓(既定) / files=録音 / detail=1呼の詳細 */
+  view: "dashboard" | "files" | "detail";
   mode: "live" | "history";
   selectedId: string | null;
   messages: Message[]; // 表示中の呼の発話
@@ -36,7 +38,8 @@ export interface State {
 
 export const initialState: State = {
   calls: new Map(),
-  mode: "live",
+  view: "dashboard",
+  mode: "history",
   selectedId: null,
   messages: [],
   situation: { score: null, reason: "", voice: null, maxAnger: null },
@@ -46,6 +49,7 @@ export const initialState: State = {
 
 export type Action =
   | { type: "ws_status"; status: string }
+  | { type: "set_view"; view: State["view"] }
   | { type: "history_loaded"; metas: CallMeta[] }
   | { type: "open_call"; record: CallRecord; mode: State["mode"] }
   | { type: "go_live" }
@@ -84,6 +88,9 @@ export function reducer(state: State, action: Action): State {
     case "ws_status":
       return { ...state, wsStatus: action.status };
 
+    case "set_view":
+      return { ...state, view: action.view, mode: "history" };
+
     case "history_loaded": {
       let calls = state.calls;
       for (const m of action.metas) calls = upsert(calls, m);
@@ -95,6 +102,7 @@ export function reducer(state: State, action: Action): State {
       const { messages, ...meta } = record;
       return {
         ...state,
+        view: "detail",
         mode,
         selectedId: record.contact_id,
         calls: upsert(state.calls, meta),
@@ -105,7 +113,7 @@ export function reducer(state: State, action: Action): State {
     }
 
     case "go_live":
-      return { ...state, mode: "live", selectedId: null, messages: [],
+      return { ...state, view: "detail", mode: "live", selectedId: null, messages: [],
                situation: { score: null, reason: "", voice: null, maxAnger: null }, alert: null };
 
     case "ws_event":
@@ -155,7 +163,14 @@ function applyWs(state: State, ev: WsEvent): State {
     }
 
     case "emotion": {
-      if (ev.contact_id !== state.selectedId) return state;
+      // 監視卓のため、どの呼のイベントでもメタ(今の状態)は更新する
+      const meta = state.calls.get(ev.contact_id);
+      const metaMax = Math.max(meta?.max_anger ?? 0, ev.score);
+      const calls0 = upsert(state.calls, {
+        contact_id: ev.contact_id, anger_now: ev.score, reason_now: ev.reason || "",
+        max_anger: metaMax,
+      });
+      if (ev.contact_id !== state.selectedId) return { ...state, calls: calls0 };
       const messages = state.messages.map((m) =>
         m.item_id === ev.item_id && m.speaker === "customer"
           ? { ...m, anger_score: ev.score, anger_reason: ev.reason }
@@ -165,13 +180,9 @@ function applyWs(state: State, ev: WsEvent): State {
         state.situation.maxAnger == null || ev.score > state.situation.maxAnger
           ? ev.score
           : state.situation.maxAnger;
-      const calls =
-        state.selectedId != null
-          ? upsert(state.calls, { contact_id: state.selectedId, max_anger: maxAnger })
-          : state.calls;
       return {
         ...state,
-        calls,
+        calls: calls0,
         messages,
         situation: { ...state.situation, score: ev.score, reason: ev.reason || "",
                      lastItemId: ev.item_id, maxAnger },
@@ -180,7 +191,13 @@ function applyWs(state: State, ev: WsEvent): State {
     }
 
     case "voice": {
-      if (ev.contact_id !== state.selectedId) return state;
+      const vmeta = state.calls.get(ev.contact_id);
+      const vcalls = upsert(state.calls, {
+        contact_id: ev.contact_id,
+        anger_now: Math.max(vmeta?.anger_now ?? 0, ev.score),
+        max_anger: Math.max(vmeta?.max_anger ?? 0, ev.score),
+      });
+      if (ev.contact_id !== state.selectedId) return { ...state, calls: vcalls };
       const messages = state.messages.map((m) =>
         m.item_id === ev.item_id && m.speaker === "customer"
           ? { ...m, voice_score: ev.score, voice_tone: ev.tone }
@@ -199,13 +216,16 @@ function applyWs(state: State, ev: WsEvent): State {
           : state.calls;
       return {
         ...state,
-        calls,
+        calls: vcalls,
         messages,
         situation: { ...state.situation, maxAnger,
                      voice: { score: ev.score, tone: ev.tone || "", itemId: ev.item_id } },
         alert,
       };
     }
+
+    case "call_updated":
+      return { ...state, calls: upsert(state.calls, ev) };
 
     case "error":
       return state; // 表示は今のところフィード側でやらない(ログはサーバーに残る)

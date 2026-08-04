@@ -25,6 +25,11 @@ os.environ["DATABASE_URL"] = ""
 os.environ["S3_ENDPOINT_URL"] = ""
 os.environ["S3_BUCKET"] = ""
 os.environ["WATCH_CALLS"] = "0"
+# 開発者の.env(AUTH_ENABLED=1等)がテスト結果を変えないよう固定する。
+# CIとローカルで同じ前提にしないと「ローカルでは通るのにCIで落ちる」が起きる
+# (2026-08-04にDEV_TOOLSの既定値で実際に発生)
+os.environ["AUTH_ENABLED"] = "0"
+os.environ.pop("DEV_TOOLS", None)
 
 BACKEND = Path(__file__).resolve().parent.parent
 REPO = BACKEND.parent

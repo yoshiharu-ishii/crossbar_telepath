@@ -244,6 +244,27 @@ async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
     return {"status": "started", "contact_id": contact_id, "speed": speed}
 
 
+@app.post("/api/calls/{contact_id}/claim")
+async def api_claim(contact_id: str, who: dict = Depends(auth.require_auth)) -> dict:
+    """挙手: この呼を自分が担当する。
+
+    割り当ての正本は自前(owner_email)。将来Connectのエージェントイベントに
+    差し替えるときも、埋める人が変わるだけでこの欄の意味は変わらない。
+    対象は通話中の呼のみ(終わった呼の担当は記録であって、奪い合う物ではない)。
+    """
+    email = who.get("email") or "dev@local"  # 認証無効(開発)時の暫定席
+    call = hub.get_record(contact_id)
+    if call is None or call.ended_at is not None:
+        raise HTTPException(404, "通話中の呼ではありません")
+    if call.owner_email and call.owner_email != email:
+        raise HTTPException(409, f"already claimed by {call.owner_email}")
+    call.owner_email = email
+    await hub.broadcast({
+        "type": "call_updated", "contact_id": contact_id, "owner_email": email,
+    })
+    return {"contact_id": contact_id, "owner_email": email}
+
+
 @app.get("/api/history/{contact_id}/card.json")
 def api_card(contact_id: str) -> Response:
     """通話カードをJSONで返す。外部システムへの受け渡し口。

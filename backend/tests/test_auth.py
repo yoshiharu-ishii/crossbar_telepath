@@ -112,3 +112,52 @@ def test_ws_rejects_without_token(client):
         with client.websocket_connect("/ws"):
             pass
     assert e.value.code == 4401
+
+
+# ---- 挙手(claim): 担当の割り当て ----
+
+
+@pytest.fixture()
+def live_call():
+    """hubに通話中の呼を1本生やす(テスト後に掃除)。"""
+    import hub as hub_mod
+    from hub import CallRecord
+    from main import hub
+
+    rec = CallRecord(contact_id="live-1", label="t")
+    hub.active["live-1"] = rec
+    yield rec
+    hub.active.pop("live-1", None)
+
+
+def test_claim_sets_owner(client, monkeypatch, live_call):
+    token = make_token(**{"cognito:groups": ["operator"], "email": "op@example.com"})
+    r = client.post("/api/calls/live-1/claim", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200
+    assert live_call.owner_email == "op@example.com"
+
+    # 同じ人の再挙手は冪等
+    r2 = client.post("/api/calls/live-1/claim", headers={"Authorization": f"Bearer {token}"})
+    assert r2.status_code == 200
+
+    # 別の人は取れない(奪い合い防止)
+    other = make_token(**{"email": "sv@example.com"})
+    r3 = client.post("/api/calls/live-1/claim", headers={"Authorization": f"Bearer {other}"})
+    assert r3.status_code == 409
+
+
+def test_claim_rejects_ended_call(client, live_call):
+    live_call.ended_at = 123.0
+    token = make_token()
+    r = client.post("/api/calls/live-1/claim", headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 404
+
+
+def test_config_exposes_dev_tools_flag(client, monkeypatch):
+    """設定値がそのまま公開設定に出ること(既定値の導出はconfig.pyの責務)。"""
+    import config
+
+    monkeypatch.setattr(config, "DEV_TOOLS", False)
+    assert client.get("/api/auth/config").json()["dev_tools"] is False
+    monkeypatch.setattr(config, "DEV_TOOLS", True)
+    assert client.get("/api/auth/config").json()["dev_tools"] is True

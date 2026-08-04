@@ -85,6 +85,10 @@ def list_records() -> list[dict]:
                     "ended_at": rec.get("ended_at"),
                     "max_anger": rec.get("max_anger"),
                     "message_count": len(rec.get("messages", [])),
+                    # 会話一覧(明細)が使う列。DB側のlist_recordsと形を揃える
+                    "summary": rec.get("summary") or (rec.get("card") or {}).get("summary"),
+                    "owner_email": rec.get("owner_email"),
+                    "card": rec.get("card"),
                     "live": False,
                 })
         out.sort(key=lambda r: r.get("started_at") or 0, reverse=True)

@@ -53,6 +53,7 @@ calls = Table(
     # PH3で埋める。呼の一覧から「揉めた通話」を探せるようにするための列
     Column("max_anger", Integer),
     Column("summary", Text),
+    Column("owner_email", Text),
     # 通話カードのJSON。外部システムへの受け渡し口なので、要約だけでなく
     # 構造化された形のまま残す(summary はその一行目を取り出したもの)
     Column("card", Text),
@@ -137,6 +138,7 @@ def save_record(record: dict) -> None:
                 ended_at=_to_dt(record.get("ended_at")),
                 max_anger=record.get("max_anger"),
                 summary=record.get("summary"),
+                owner_email=record.get("owner_email"),
                 card=json.dumps(record["card"], ensure_ascii=False)
                 if record.get("card")
                 else None,
@@ -203,6 +205,7 @@ def load_record(contact_id: str) -> dict | None:
         "ended_at": _to_epoch(call.ended_at),
         "max_anger": call.max_anger,
         "summary": call.summary,
+        "owner_email": call.owner_email,
         "card": json.loads(call.card) if call.card else None,
         "message_count": len(msgs),
         "live": False,

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { initialState, reducer } from "./store";
 import { apiFetch, wsUrl } from "./api";
 import type { CallRecord, RecordingFile, WsEvent } from "./types";
-import { Sidebar } from "./components/Sidebar";
+import { Menu } from "./components/Menu";
+import { Dashboard } from "./components/Dashboard";
+import { Files } from "./components/Files";
 import { CallHeader } from "./components/CallHeader";
 import { AlertBanner } from "./components/AlertBanner";
 import { CardPanel } from "./components/CardPanel";
@@ -79,11 +81,11 @@ export default function App({
     };
   }, []);
 
-  // liveモードで未選択なら、進行中の呼を自動で開く。WS接続より前に始まった呼
-  // (画面を後から開いた・リロードした場合)はcall_startedが来ないため、
-  // イベント頼みだと取りこぼす
+  // リアルタイム追従(mode=live)で未選択なら、進行中の呼を自動で開く。
+  // WS接続より前に始まった呼はcall_startedが来ないため、イベント頼みだと取りこぼす。
+  // 監視卓(dashboard)は自動で画面を奪わない——SVの視点を勝手に動かさない
   useEffect(() => {
-    if (state.mode !== "live" || state.selectedId != null) return;
+    if (state.view !== "detail" || state.mode !== "live" || state.selectedId != null) return;
     const active = [...state.calls.values()]
       .filter((c) => c.live)
       .sort((a, b) => (b.started_at || 0) - (a.started_at || 0))[0];
@@ -110,10 +112,10 @@ export default function App({
         )}
       </header>
       <div className="layout flex-grow-1">
-        <Sidebar
+        <Menu
           state={state}
-          files={files}
-          onSelect={(id) => openCall(id, "history")}
+          liveCount={[...state.calls.values()].filter((c) => c.live).length}
+          onSelect={(view) => dispatch({ type: "set_view", view })}
           onGoLive={() => {
             const active = [...state.calls.values()]
               .filter((c) => c.live)
@@ -121,41 +123,71 @@ export default function App({
             if (active) openCall(active.contact_id, "live");
             else dispatch({ type: "go_live" });
           }}
-          onReplay={async (file) => {
-            const res = await apiFetch(`/api/replay?file=${encodeURIComponent(file)}`, {
-              method: "POST",
-            }).catch(() => null);
-            if (!res?.ok) {
-              const body = res ? await res.json().catch(() => ({})) : {};
-              dispatch({ type: "ws_status", status: body.detail || "リプレイを開始できませんでした" });
-              setTimeout(() => dispatch({ type: "ws_status", status: "待機中" }), 3000);
-            } else {
-              dispatch({ type: "go_live" });
-            }
-          }}
         />
         <main className="main-pane bg-body-tertiary">
-          {selected ? (
-            <>
-              <CallHeader
-                meta={selected}
-                situation={state.situation}
-                dispatchStatus={(s) => dispatch({ type: "ws_status", status: s })}
-                onPlayhead={setPlayhead}
-              />
-              {state.alert && <AlertBanner alert={state.alert} />}
-              <Feed messages={state.messages} meta={selected} playhead={playhead}>
-                {/* カードはスクロール領域の中に置く。固定領域に置くと、狭い画面で
-                    ヘッダ+カードがフィードを1pxまで潰す(2026-08-04に実際に発生) */}
-                {!selected.live && selected.card && <CardPanel meta={selected} />}
-              </Feed>
-            </>
-          ) : (
-            <div className="text-center text-secondary p-5">
-              <div className="mb-1">🟢 リアルタイム待機中</div>
-              架電するか、左の録音ファイルをリプレイしてください。
-            </div>
+          {state.view === "dashboard" && (
+            <Dashboard
+              calls={[...state.calls.values()]}
+              myEmail={identity?.email}
+              onOpen={(id) => openCall(id, "history")}
+              onClaim={async (id) => {
+                const res = await apiFetch(`/api/calls/${id}/claim`, { method: "POST" })
+                  .catch(() => null);
+                if (!res?.ok) {
+                  const body = res ? await res.json().catch(() => ({})) : {};
+                  dispatch({ type: "ws_status", status: body.detail || "取れませんでした" });
+                  setTimeout(() => dispatch({ type: "ws_status", status: "待機中" }), 3000);
+                }
+              }}
+            />
           )}
+          {state.view === "files" && (
+            <Files
+              files={files}
+              onReplay={async (file) => {
+                const res = await apiFetch(`/api/replay?file=${encodeURIComponent(file)}`, {
+                  method: "POST",
+                }).catch(() => null);
+                if (!res?.ok) {
+                  const body = res ? await res.json().catch(() => ({})) : {};
+                  dispatch({ type: "ws_status", status: body.detail || "リプレイを開始できませんでした" });
+                  setTimeout(() => dispatch({ type: "ws_status", status: "待機中" }), 3000);
+                } else {
+                  dispatch({ type: "go_live" });
+                }
+              }}
+            />
+          )}
+          {state.view === "detail" &&
+            (selected ? (
+              <>
+                <div className="px-3 pt-2 bg-body border-bottom-0">
+                  <button
+                    className="btn btn-sm btn-link text-decoration-none px-0"
+                    onClick={() => dispatch({ type: "set_view", view: "dashboard" })}
+                  >
+                    ← 監視卓へ
+                  </button>
+                </div>
+                <CallHeader
+                  meta={selected}
+                  situation={state.situation}
+                  dispatchStatus={(s) => dispatch({ type: "ws_status", status: s })}
+                  onPlayhead={setPlayhead}
+                />
+                {state.alert && <AlertBanner alert={state.alert} />}
+                <Feed messages={state.messages} meta={selected} playhead={playhead}>
+                  {/* カードはスクロール領域の中に置く。固定領域に置くと、狭い画面で
+                      ヘッダ+カードがフィードを1pxまで潰す(2026-08-04に実際に発生) */}
+                  {!selected.live && selected.card && <CardPanel meta={selected} />}
+                </Feed>
+              </>
+            ) : (
+              <div className="text-center text-secondary p-5">
+                <div className="mb-1">🟢 リアルタイム待機中</div>
+                架電するか、録音ファイルをリプレイしてください。
+              </div>
+            ))}
         </main>
       </div>
     </div>

@@ -101,6 +101,11 @@ def has_recording(contact_id: str) -> bool:
                 return True
             except ClientError:
                 pass
+            except Exception as e:
+                # ストレージが落ちていても履歴一覧は出す(録音の有無だけ諦める)。
+                # ここが例外を上げると /api/history 全体が500になり、
+                # MinIO停止=画面全滅という壊れ方をする(2026-08-04に実際に発生)
+                log.warning("録音ストレージに届かない(録音なし扱い): %s", e)
         return local_path(contact_id).exists()
     except ValueError:
         return False

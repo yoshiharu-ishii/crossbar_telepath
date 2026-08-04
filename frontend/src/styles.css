@@ -7,7 +7,7 @@ body { overflow: hidden; }
 .layout { display: flex; height: calc(100% - 57px); }
 .sidebar { width: 320px; flex: none; overflow-y: auto; }
 .main-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.feed { flex: 1; overflow-y: auto; }
+.feed { flex: 1; min-height: 0; overflow-y: auto; }
 
 /* 吹き出し。尻尾は45度回した正方形で、background/border継承で色分けに追従する */
 .bubble {
@@ -68,3 +68,6 @@ body { overflow: hidden; }
 
 /* カスハラ引用 */
 .quote { padding-left: 10px; border-left: 3px solid var(--ct-customer); }
+
+/* 録音再生中、いま鳴っている発話 */
+.bubble.playing-now { box-shadow: 0 0 0 2px var(--bs-primary); }

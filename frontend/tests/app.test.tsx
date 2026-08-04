@@ -191,6 +191,42 @@ describe("テキストと声の融合", () => {
   });
 });
 
+describe("録音の再生追従", () => {
+  it("再生位置にある発話がハイライトされ、停止で消える", async () => {
+    const rec = {
+      ...RECORD,
+      has_recording: true,
+      messages: [
+        { speaker: "customer", item_id: "u1", text: "最初の発話", final: true,
+          ts: 1700000001, audio_start_ms: 0, audio_end_ms: 3000 },
+        { speaker: "customer", item_id: "u2", text: "あとの発話", final: true,
+          ts: 1700000010, audio_start_ms: 10000, audio_end_ms: 13000 },
+      ],
+    };
+    mockFetch({
+      "/api/history/t1": rec,
+      "/api/history": [{ ...rec, messages: undefined }],
+    });
+    render(<App />);
+    await userEvent.click(await screen.findByTestId("call-t1"));
+    const audio = document.querySelector("audio")!;
+
+    // 11秒地点を再生中 → 2つ目の発話が「いま鳴っている」
+    act(() => {
+      Object.defineProperty(audio, "currentTime", { value: 11, configurable: true });
+      audio.dispatchEvent(new Event("timeupdate"));
+    });
+    expect(screen.getByText("あとの発話").closest(".bubble")!.className).toContain("playing-now");
+    expect(screen.getByText("最初の発話").closest(".bubble")!.className).not.toContain("playing-now");
+
+    // 停止したら追従も消える
+    act(() => {
+      audio.dispatchEvent(new Event("pause"));
+    });
+    expect(screen.getByText("あとの発話").closest(".bubble")!.className).not.toContain("playing-now");
+  });
+});
+
 describe("未知のWSイベント", () => {
   it("型に無いイベント(speech等)が来ても状態が壊れない", async () => {
     mockFetch({

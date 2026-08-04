@@ -12,7 +12,7 @@ export function CardPanel({ meta }: { meta: CallMeta }) {
   if (c.unresolved?.length) rows.push(["未解決", c.unresolved.join(" / ")]);
 
   return (
-    <div className="border rounded bg-body mx-3 mb-3 p-3" style={{ fontSize: 13 }} data-testid="card">
+    <div className="border rounded bg-body mb-3 p-3" style={{ fontSize: 13 }} data-testid="card">
       <div className="d-flex align-items-baseline gap-2 mb-2">
         <span className="text-secondary fw-semibold" style={{ fontSize: 12 }}>通話カード</span>
         {c.harassment && (

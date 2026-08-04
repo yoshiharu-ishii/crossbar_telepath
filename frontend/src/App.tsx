@@ -10,6 +10,9 @@ import { Feed } from "./components/Feed";
 export default function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [files, setFiles] = useState<RecordingFile[]>([]);
+  // 録音再生中の再生位置(ms)。再生していないときはnull。
+  // 発話のaudio_start_msと同じ座標なので、フィードの追従に使える
+  const [playhead, setPlayhead] = useState<number | null>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -113,10 +116,18 @@ export default function App() {
         <main className="main-pane bg-body-tertiary">
           {selected ? (
             <>
-              <CallHeader meta={selected} situation={state.situation} dispatchStatus={(s) => dispatch({ type: "ws_status", status: s })} />
+              <CallHeader
+                meta={selected}
+                situation={state.situation}
+                dispatchStatus={(s) => dispatch({ type: "ws_status", status: s })}
+                onPlayhead={setPlayhead}
+              />
               {state.alert && <AlertBanner alert={state.alert} />}
-              {!selected.live && selected.card && <CardPanel meta={selected} />}
-              <Feed messages={state.messages} meta={selected} />
+              <Feed messages={state.messages} meta={selected} playhead={playhead}>
+                {/* カードはスクロール領域の中に置く。固定領域に置くと、狭い画面で
+                    ヘッダ+カードがフィードを1pxまで潰す(2026-08-04に実際に発生) */}
+                {!selected.live && selected.card && <CardPanel meta={selected} />}
+              </Feed>
             </>
           ) : (
             <div className="text-center text-secondary p-5">

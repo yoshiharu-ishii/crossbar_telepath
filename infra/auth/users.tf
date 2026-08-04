@@ -13,7 +13,8 @@
 locals {
   users = {
     "yoshiharu.ishii@pocraft.net" = { invite = true, groups = ["sv"] }  # 管理者本人
-    "claude-e2e@pocraft.net"      = { invite = false, groups = ["sv"] } # E2E検証専用
+    "claude-e2e@pocraft.net"      = { invite = false, groups = ["sv"] }       # E2E検証専用(SV)
+    "claude-e2e-op@pocraft.net"   = { invite = false, groups = ["operator"] } # E2E検証専用(応対者)
   }
 }
 

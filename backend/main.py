@@ -83,6 +83,21 @@ async def cache_control(request: Request, call_next):
     return response
 
 
+def _is_operator(who: dict) -> bool:
+    return bool(who) and who.get("role") == "operator"
+
+
+def _can_view(who: dict, meta: dict) -> bool:
+    """この席がこの呼を見てよいか。SV/認証無効は全部、応対者は自分の呼だけ。
+
+    未割り当てのライブ呼は一覧に出す(「取る」ため)が、中身の閲覧は担当のみ。
+    ここでの判定はメタに対して行い、一覧と詳細で同じ規則を使う。
+    """
+    if not _is_operator(who):
+        return True
+    return meta.get("owner_email") == who.get("email")
+
+
 def _start_session(session: CallSession, source) -> None:
     """呼を1本立ち上げる。既に同じ呼が走っていれば何もしない。"""
     if session.contact_id in _sessions and not _sessions[session.contact_id].done():
@@ -161,21 +176,32 @@ async def ws_endpoint(ws: WebSocket) -> None:
 
 
 @app.get("/api/history")
-def api_history() -> list[dict]:
-    """呼の一覧。処理中+終了直後(メモリ)+保存済み(ディスク)を新しい順で。"""
+def api_history(who: dict = Depends(auth.require_auth)) -> list[dict]:
+    """呼の一覧。処理中+終了直後(メモリ)+保存済み(ディスク)を新しい順で。
+
+    応対者には自分の担当と、未割り当てのライブ呼(取るための存在通知)だけを返す。
+    """
     in_memory = [c.meta() for c in hub.active.values()] + [
         c.meta() for c in hub.recent.values()
     ]
     seen = {c["contact_id"] for c in in_memory}
     saved = [r for r in history.list_records() if r["contact_id"] not in seen]
-    return sorted(in_memory + saved, key=lambda r: r.get("started_at") or 0, reverse=True)
+    rows = sorted(in_memory + saved, key=lambda r: r.get("started_at") or 0, reverse=True)
+    if _is_operator(who):
+        rows = [
+            r for r in rows
+            if _can_view(who, r) or (r.get("live") and not r.get("owner_email"))
+        ]
+    return rows
 
 
 @app.get("/api/history/{contact_id}")
-def api_history_one(contact_id: str) -> dict:
+def api_history_one(contact_id: str, who: dict = Depends(auth.require_auth)) -> dict:
     """1つの呼の記録(メモリ上を優先、なければディスクから)。"""
     call = hub.get_record(contact_id)
     if call is not None:
+        if not _can_view(who, call.meta()):
+            raise HTTPException(403, "この呼の担当ではありません")
         return call.as_dict()
     try:
         rec = history.load_record(contact_id)
@@ -183,15 +209,21 @@ def api_history_one(contact_id: str) -> dict:
         raise HTTPException(400, "不正なcontact_id")
     if rec is None:
         raise HTTPException(404, f"呼 {contact_id} の記録がありません")
+    if not _can_view(who, rec):
+        raise HTTPException(403, "この呼の担当ではありません")
     return rec
 
 
 @app.post("/api/replay")
-async def api_replay(file: str = "call.mkv", speed: float = 1.0) -> dict:
+async def api_replay(
+    file: str = "call.mkv", speed: float = 1.0, who: dict = Depends(auth.require_auth)
+) -> dict:
     """開発用: recordings/ 直下のMKVを流して、架電せずに画面まで通しで試す。
 
     連打で同時セッションが積み上がらないよう、リプレイは同時1本まで(実通話は無制限)。
     """
+    if _is_operator(who):
+        raise HTTPException(403, "リプレイは監視卓(SV)の操作です")
     running = [
         cid for cid, t in _sessions.items()
         if cid.startswith("replay-") and not t.done()
@@ -211,11 +243,15 @@ async def api_replay(file: str = "call.mkv", speed: float = 1.0) -> dict:
 
 
 @app.post("/api/reprocess/{contact_id}")
-async def api_reprocess(contact_id: str, speed: float = 2.0) -> dict:
+async def api_reprocess(
+    contact_id: str, speed: float = 2.0, who: dict = Depends(auth.require_auth)
+) -> dict:
     """過去の呼を**同じCallIDのまま**再文字起こしする。履歴は増えない。
 
     録音MKVをパイプラインに流し直し、終了時に記録を上書き保存する。
     """
+    if _is_operator(who):
+        raise HTTPException(403, "再文字起こしは監視卓(SV)の操作です")
     if contact_id in _sessions and not _sessions[contact_id].done():
         raise HTTPException(409, "この呼は処理中です")
     try:
@@ -266,12 +302,16 @@ async def api_claim(contact_id: str, who: dict = Depends(auth.require_auth)) -> 
 
 
 @app.get("/api/history/{contact_id}/card.json")
-def api_card(contact_id: str) -> Response:
+def api_card(contact_id: str, who: dict = Depends(auth.require_auth)) -> Response:
     """通話カードをJSONで返す。外部システムへの受け渡し口。
 
     画面で見るだけならhistoryに含まれているが、保存・連携のために
     ファイルとして落とせる形も用意しておく。
     """
+    _rec0 = hub.get_record(contact_id)
+    _meta0 = _rec0.meta() if _rec0 else (history.load_record(contact_id) or {})
+    if not _can_view(who, _meta0):
+        raise HTTPException(403, "この呼の担当ではありません")
     call = hub.get_record(contact_id)
     rec = call.as_dict() if call is not None else history.load_record(contact_id)
     if rec is None:
@@ -296,12 +336,19 @@ def api_card(contact_id: str) -> Response:
 
 @app.get("/api/recordings/{contact_id}.wav")
 def api_recording_wav(
-    contact_id: str, start_ms: int | None = None, end_ms: int | None = None
+    contact_id: str,
+    start_ms: int | None = None,
+    end_ms: int | None = None,
+    who: dict = Depends(auth.require_auth),
 ) -> Response:
     """録音を左=相手/右=こちらのステレオWAVで返す(ブラウザ再生用)。
 
     start_ms/end_ms を渡すとその区間だけを切り出す。発話ごとの頭出し再生に使う。
     """
+    rec = hub.get_record(contact_id)
+    meta = rec.meta() if rec else (history.load_record(contact_id) or {})
+    if not _can_view(who, meta):
+        raise HTTPException(403, "この呼の担当ではありません")
     try:
         data = storage.get_recording(contact_id)
     except ValueError:
@@ -316,8 +363,10 @@ def api_recording_wav(
 
 
 @app.get("/api/recording-files")
-def api_recording_files() -> list[dict]:
+def api_recording_files(who: dict = Depends(auth.require_auth)) -> list[dict]:
     """開発用リプレイに使える recordings/ 直下のMKV一覧。"""
+    if _is_operator(who):
+        raise HTTPException(403, "開発ツールは監視卓(SV)の操作です")
     if not RECORDINGS_DIR.exists():
         return []
     return [

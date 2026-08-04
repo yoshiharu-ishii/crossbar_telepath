@@ -106,9 +106,7 @@ class Hub:
     MAX_RECENT = MAX_RECENT_CALLS
 
     def __init__(self) -> None:
-        # WS接続 → 席の情報(sub/email/role)。認証無効時は空dict。
-        # まだ全員に全呼を配っている(認可=宛先化は次の段階)が、
-        # 「誰が繋いでいるか」をここで持つことが宛先化の土台になる
+        # WS接続 → 席の情報(sub/email/role)。認証無効時は空dict(=SV相当)
         self._clients: dict[WebSocket, dict] = {}
         self.active: dict[str, CallRecord] = {}
         self.recent: OrderedDict[str, CallRecord] = OrderedDict()
@@ -120,6 +118,29 @@ class Hub:
     def disconnect(self, ws: WebSocket) -> None:
         self._clients.pop(ws, None)
 
+    def _allowed(self, who: dict, msg: dict) -> bool:
+        """この席にこのイベントを送ってよいか(宛先化)。
+
+        ブラウザ側で捨てるのは境界ではない——**そもそも送らない**。
+        - SV/認証無効: 全部
+        - 応対者: 自分の呼の内容だけ。未割り当てのライブ呼はメタのみ
+          (「取る」ための存在通知。文字起こし等の中身は担当になってから)
+        - call_updated(担当の変化)は全員へ。中身を含まず、
+          「他の人が取った」を応対者の一覧に反映するために必要
+        """
+        if not who or who.get("role") != "operator":
+            return True
+        mtype = msg.get("type")
+        if mtype == "call_updated":
+            return True
+        rec = self.get_record(msg.get("contact_id", ""))
+        owner = rec.owner_email if rec else None
+        if owner == who.get("email"):
+            return True
+        if mtype in ("call_started", "call_ended"):
+            return owner is None  # 未割り当てはメタだけ見せる
+        return False
+
     async def broadcast(self, msg: dict) -> None:
         msg.setdefault("ts", time.time())
         call = self.active.get(msg.get("contact_id", ""))
@@ -128,7 +149,9 @@ class Hub:
 
         payload = json.dumps(msg, ensure_ascii=False)
         dead = []
-        for ws in self._clients:
+        for ws, who in list(self._clients.items()):
+            if not self._allowed(who, msg):
+                continue
             try:
                 await ws.send_text(payload)
             except Exception:

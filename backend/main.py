@@ -215,11 +215,15 @@ def api_history_one(contact_id: str, who: dict = Depends(auth.require_auth)) -> 
 
 
 @app.post("/api/replay")
-async def api_replay(file: str = "call.mkv", speed: float = 1.0) -> dict:
+async def api_replay(
+    file: str = "call.mkv", speed: float = 1.0, who: dict = Depends(auth.require_auth)
+) -> dict:
     """開発用: recordings/ 直下のMKVを流して、架電せずに画面まで通しで試す。
 
     連打で同時セッションが積み上がらないよう、リプレイは同時1本まで(実通話は無制限)。
     """
+    if _is_operator(who):
+        raise HTTPException(403, "リプレイは監視卓(SV)の操作です")
     running = [
         cid for cid, t in _sessions.items()
         if cid.startswith("replay-") and not t.done()
@@ -359,8 +363,10 @@ def api_recording_wav(
 
 
 @app.get("/api/recording-files")
-def api_recording_files() -> list[dict]:
+def api_recording_files(who: dict = Depends(auth.require_auth)) -> list[dict]:
     """開発用リプレイに使える recordings/ 直下のMKV一覧。"""
+    if _is_operator(who):
+        raise HTTPException(403, "開発ツールは監視卓(SV)の操作です")
     if not RECORDINGS_DIR.exists():
         return []
     return [

@@ -144,3 +144,10 @@ def test_sv_sees_everything(client, two_calls):
 def test_reprocess_is_sv_only(client, two_calls):
     op = {"Authorization": f"Bearer {_token('a@example.com', ['operator'])}"}
     assert client.post("/api/reprocess/mine", headers=op).status_code == 403
+
+
+def test_dev_endpoints_are_sv_only(client):
+    """リプレイと録音一覧はUIで隠すだけでなくAPIでも塞ぐ(直叩き対策)。"""
+    op = {"Authorization": f"Bearer {_token('a@example.com', ['operator'])}"}
+    assert client.post("/api/replay?file=call.mkv", headers=op).status_code == 403
+    assert client.get("/api/recording-files", headers=op).status_code == 403

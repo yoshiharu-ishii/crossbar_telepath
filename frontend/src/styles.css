@@ -71,3 +71,17 @@ body { overflow: hidden; }
 
 /* 録音再生中、いま鳴っている発話 */
 .bubble.playing-now { box-shadow: 0 0 0 2px var(--bs-primary); }
+
+/* ログイン画面 */
+.login-bg {
+  background:
+    radial-gradient(1000px 500px at 20% -10%, rgba(37, 99, 235, .18), transparent 60%),
+    radial-gradient(800px 400px at 110% 110%, rgba(179, 38, 30, .12), transparent 60%),
+    var(--bs-body-bg);
+}
+.login-card { border-radius: 16px; }
+.login-mark {
+  width: 56px; height: 56px; border-radius: 14px; font-size: 28px; line-height: 56px;
+  background: linear-gradient(135deg, #2563eb, #1e40af); color: #fff; text-align: center;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, .35);
+}

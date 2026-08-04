@@ -94,6 +94,15 @@ VOICE_TRIGGER_SCORE = int(os.getenv("VOICE_TRIGGER_SCORE", "45"))
 CARD_MODEL = os.getenv("CARD_MODEL", "gpt-4o-mini")
 CARD_ENABLED = _bool("CARD_ENABLED", True)
 
+# ---- 認証(PH4) ------------------------------------------------------
+# 既定は無効(開発・CIはこれまで通り動く)。本番相当で使うときだけ有効にする。
+# 値は infra/auth の terraform output env_snippet からそのまま貼れる
+AUTH_ENABLED = _bool("AUTH_ENABLED", False)
+COGNITO_REGION = os.getenv("COGNITO_REGION", AWS_REGION)
+COGNITO_USER_POOL_ID = os.getenv("COGNITO_USER_POOL_ID", "")
+COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID", "")
+COGNITO_ISSUER = f"https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}"
+
 # ---- 永続化(PH3) ----------------------------------------------------
 # 空ならファイル(recordings/calls/*.json)にフォールバックする
 DATABASE_URL = os.getenv("DATABASE_URL", "")

@@ -29,3 +29,4 @@ class FakeAudio {
 
 // scrollToはjsdom未実装
 Element.prototype.scrollTo = () => {};
+Element.prototype.scrollIntoView = () => {};

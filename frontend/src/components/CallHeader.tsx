@@ -55,6 +55,7 @@ export function CallHeader(props: {
   meta: CallMeta;
   situation: Situation;
   dispatchStatus: (s: string) => void;
+  onPlayhead: (ms: number | null) => void;
 }) {
   const { meta } = props;
   const [busy, setBusy] = useState(false);
@@ -72,11 +73,16 @@ export function CallHeader(props: {
         {!meta.live && meta.has_recording && (
           <div className="d-flex align-items-center gap-2">
             <audio
+              key={meta.contact_id}
               controls
               preload="none"
               src={`/api/recordings/${meta.contact_id}.wav`}
               title="左=相手 / 右=こちら"
               style={{ height: 32 }}
+              onTimeUpdate={(e) => props.onPlayhead(e.currentTarget.currentTime * 1000)}
+              onPlay={(e) => props.onPlayhead(e.currentTarget.currentTime * 1000)}
+              onPause={() => props.onPlayhead(null)}
+              onEnded={() => props.onPlayhead(null)}
             />
             <button
               className="btn btn-sm btn-outline-secondary text-nowrap flex-shrink-0"

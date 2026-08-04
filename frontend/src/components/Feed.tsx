@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { CallMeta, Message } from "../types";
 import { angerClass, angerColor, clock } from "../anger";
 
@@ -16,12 +16,12 @@ function playSegment(contactId: string, startMs: number, endMs: number) {
   void segAudio.play().catch(() => undefined);
 }
 
-function Bubble({ m, meta }: { m: Message; meta: CallMeta }) {
+function Bubble({ m, meta, active }: { m: Message; meta: CallMeta; active?: boolean }) {
   const cls = m.speaker === "customer" ? angerClass(m.anger_score) : "";
   const canPlay = meta.has_recording && m.final && m.audio_start_ms != null;
   return (
-    <div className={`row-msg ${m.speaker}`}>
-      <div className={`bubble ${cls} ${m.final ? "" : "pending"}`}>
+    <div className={`row-msg ${m.speaker}`} data-item={m.item_id}>
+      <div className={`bubble ${cls} ${m.final ? "" : "pending"} ${active ? "playing-now" : ""}`}>
         <div className="who">{WHO[m.speaker] ?? m.speaker}</div>
         <div className="msg-text">{m.text}</div>
         {canPlay && (
@@ -53,7 +53,17 @@ function Bubble({ m, meta }: { m: Message; meta: CallMeta }) {
   );
 }
 
-export function Feed({ messages, meta }: { messages: Message[]; meta: CallMeta }) {
+export function Feed({
+  messages,
+  meta,
+  playhead,
+  children,
+}: {
+  messages: Message[];
+  meta: CallMeta;
+  playhead?: number | null;
+  children?: ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   // 履歴を開いたときは先頭から読む。呼が切り替わった瞬間に一度だけ頭出しする
   useEffect(() => {
@@ -63,12 +73,43 @@ export function Feed({ messages, meta }: { messages: Message[]; meta: CallMeta }
   useEffect(() => {
     if (meta.live) ref.current?.scrollTo({ top: ref.current.scrollHeight });
   }, [messages, meta.live]);
+
+  // 録音の再生中は、再生位置にある発話へ追従する(位置座標は頭出し再生と同じ)。
+  // 「今どの発話が鳴っているか」を目でも追えるようにする
+  const activeKey =
+    playhead == null
+      ? null
+      : [...messages]
+          .reverse()
+          .find((m) => m.audio_start_ms != null && m.audio_start_ms <= playhead)
+          ?.item_id ?? null;
+  useEffect(() => {
+    if (activeKey == null) return;
+    const feed = ref.current;
+    const el = feed?.querySelector<HTMLElement>(`[data-item="${activeKey}"]`);
+    if (!feed || !el) return;
+    // scrollIntoView(smooth)は非アクティブなタブでアニメーションが抑止されて
+    // 届かないことがある。offsetTopは基準がoffsetParent依存でずれるので、
+    // rectの差分から「発話をフィード中央に置く」位置を確定的に計算する
+    const fr = feed.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    feed.scrollTop += er.top - fr.top - feed.clientHeight / 2 + el.clientHeight / 2;
+  }, [activeKey]);
+
   return (
     <div className="feed px-3 py-2" ref={ref}>
+      {children}
       {messages.length === 0 ? (
         <div className="text-center text-secondary p-5">この呼にはまだ発話がありません。</div>
       ) : (
-        messages.map((m) => <Bubble key={`${m.speaker}:${m.item_id}`} m={m} meta={meta} />)
+        messages.map((m) => (
+          <Bubble
+            key={`${m.speaker}:${m.item_id}`}
+            m={m}
+            meta={meta}
+            active={activeKey != null && m.item_id === activeKey}
+          />
+        ))
       )}
     </div>
   );

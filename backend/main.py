@@ -22,11 +22,12 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 import audio
+import auth
 import history
 import signaling
 import sources
@@ -62,7 +63,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(dependencies=[Depends(auth.require_auth)], lifespan=lifespan)
 hub = Hub()
 
 
@@ -143,7 +144,13 @@ async def _watch_signaling() -> None:
 
 @app.websocket("/ws")
 async def ws_endpoint(ws: WebSocket) -> None:
-    await hub.connect(ws)
+    # WSはヘッダを自由に付けられないため、トークンはクエリで受ける。
+    # 無効なら4401で閉じる(ブラウザ側はログイン画面へ戻す)
+    who = auth.verify_ws_token(ws.query_params.get("token"))
+    if who is None:
+        await ws.close(code=4401)
+        return
+    await hub.connect(ws, who)
     try:
         while True:
             await ws.receive_text()
@@ -305,6 +312,12 @@ def api_streams() -> list[dict]:
         {"name": s["StreamName"], "arn": s["StreamARN"], "created": str(s["CreationTime"])}
         for s in sources.list_call_streams()
     ]
+
+
+@app.get("/api/auth/config")
+def api_auth_config() -> dict:
+    """ログイン画面が認証前に読む公開設定。"""
+    return auth.public_config()
 
 
 @app.get("/api/health")

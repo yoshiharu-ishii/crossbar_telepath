@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { initialState, reducer } from "./store";
+import { apiFetch, wsUrl } from "./api";
 import type { CallRecord, RecordingFile, WsEvent } from "./types";
 import { Sidebar } from "./components/Sidebar";
 import { CallHeader } from "./components/CallHeader";
@@ -7,7 +8,13 @@ import { AlertBanner } from "./components/AlertBanner";
 import { CardPanel } from "./components/CardPanel";
 import { Feed } from "./components/Feed";
 
-export default function App() {
+export default function App({
+  identity,
+  onLogout,
+}: {
+  identity?: { email: string; role: "sv" | "operator" } | null;
+  onLogout?: () => void;
+} = {}) {
   const [state, dispatch] = useReducer(reducer, initialState);
   const [files, setFiles] = useState<RecordingFile[]>([]);
   // 録音再生中の再生位置(ms)。再生していないときはnull。
@@ -18,7 +25,7 @@ export default function App() {
 
   const openCall = useCallback(async (id: string, mode: "live" | "history") => {
     try {
-      const res = await fetch(`/api/history/${id}`);
+      const res = await apiFetch(`/api/history/${id}`);
       if (!res.ok) return;
       const record: CallRecord = await res.json();
       dispatch({ type: "open_call", record, mode });
@@ -31,13 +38,13 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const metas = await (await fetch("/api/history")).json();
+        const metas = await (await apiFetch("/api/history")).json();
         dispatch({ type: "history_loaded", metas });
       } catch {
         dispatch({ type: "ws_status", status: "履歴の取得に失敗" });
       }
       try {
-        setFiles(await (await fetch("/api/recording-files")).json());
+        setFiles(await (await apiFetch("/api/recording-files")).json());
       } catch {
         /* 開発用の一覧なので無くても本体は動く */
       }
@@ -48,21 +55,24 @@ export default function App() {
   useEffect(() => {
     let ws: WebSocket;
     let closed = false;
-    const connect = () => {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/ws`);
+    const connect = async () => {
+      ws = new WebSocket(await wsUrl());
       ws.onopen = () => dispatch({ type: "ws_status", status: "待機中" });
       ws.onmessage = (e) => {
         const ev: WsEvent = JSON.parse(e.data);
         dispatch({ type: "ws_event", ev });
       };
-      ws.onclose = () => {
+      ws.onclose = (e) => {
         if (closed) return;
+        if (e.code === 4401) {
+          location.reload(); // 認証切れ → ログインへ
+          return;
+        }
         dispatch({ type: "ws_status", status: "切断 — 再接続します" });
         setTimeout(connect, 1500);
       };
     };
-    connect();
+    void connect();
     return () => {
       closed = true;
       ws.close();
@@ -87,6 +97,17 @@ export default function App() {
       <header className="d-flex align-items-center gap-3 px-3 py-2 border-bottom bg-body">
         <h1 className="fs-6 fw-semibold m-0">リアルタイム識字</h1>
         <span className="text-secondary small">{state.wsStatus}</span>
+        {identity && (
+          <div className="ms-auto d-flex align-items-center gap-2 small">
+            <span className={`badge rounded-pill ${identity.role === "sv" ? "text-bg-primary" : "text-bg-secondary"}`}>
+              {identity.role === "sv" ? "SV(監視卓)" : "応対者"}
+            </span>
+            <span className="text-secondary d-none d-md-inline">{identity.email}</span>
+            <button className="btn btn-sm btn-outline-secondary" onClick={onLogout}>
+              ログアウト
+            </button>
+          </div>
+        )}
       </header>
       <div className="layout flex-grow-1">
         <Sidebar
@@ -101,7 +122,7 @@ export default function App() {
             else dispatch({ type: "go_live" });
           }}
           onReplay={async (file) => {
-            const res = await fetch(`/api/replay?file=${encodeURIComponent(file)}`, {
+            const res = await apiFetch(`/api/replay?file=${encodeURIComponent(file)}`, {
               method: "POST",
             }).catch(() => null);
             if (!res?.ok) {

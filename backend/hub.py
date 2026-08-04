@@ -102,16 +102,19 @@ class Hub:
     MAX_RECENT = MAX_RECENT_CALLS
 
     def __init__(self) -> None:
-        self._clients: set[WebSocket] = set()
+        # WS接続 → 席の情報(sub/email/role)。認証無効時は空dict。
+        # まだ全員に全呼を配っている(認可=宛先化は次の段階)が、
+        # 「誰が繋いでいるか」をここで持つことが宛先化の土台になる
+        self._clients: dict[WebSocket, dict] = {}
         self.active: dict[str, CallRecord] = {}
         self.recent: OrderedDict[str, CallRecord] = OrderedDict()
 
-    async def connect(self, ws: WebSocket) -> None:
+    async def connect(self, ws: WebSocket, who: dict | None = None) -> None:
         await ws.accept()
-        self._clients.add(ws)
+        self._clients[ws] = who or {}
 
     def disconnect(self, ws: WebSocket) -> None:
-        self._clients.discard(ws)
+        self._clients.pop(ws, None)
 
     async def broadcast(self, msg: dict) -> None:
         msg.setdefault("ts", time.time())
@@ -127,7 +130,7 @@ class Hub:
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            self._clients.discard(ws)
+            self._clients.pop(ws, None)
 
     # ---- 呼の出入り ----
 

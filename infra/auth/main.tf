@@ -31,7 +31,7 @@ resource "aws_cognito_user_pool" "this" {
   user_pool_tier           = "ESSENTIALS"
   username_attributes      = ["email"]
   auto_verified_attributes = ["email"]
-  deletion_protection      = "ACTIVE" # 事故対策: destroyやコンソール操作での削除を拒否する
+  deletion_protection      = "INACTIVE" # プロジェクト終了(2026-08-24): 埋葬のため保護を解除
   mfa_configuration        = "OFF"
 
   # セルフサインアップ禁止(ユーザー作成は管理者のみ)。通話内容を扱う製品なので、
